@@ -15,6 +15,18 @@ interface Segment {
   heading: number;   // radians, tangent heading at start
 }
 
+
+//Current position of the Car 
+interface CarState {
+  segmentIndex: number;
+  distanceAlongSegment: number; // in pixels
+  speed: number;               // pixels per second
+  heading: number;             // radians
+  position: { x: number; y: number };
+}
+
+
+
 @Component({
   selector: 'app-track-view',
   standalone: true,
@@ -183,7 +195,7 @@ export class TrackViewComponent implements AfterViewInit {
     return { x: x0, y: y0, heading: θ };
   }
 
-  // ---------- Drawing ----------
+  // ---------- Drawing of TRACK----------
   private drawAll() {
     const ctx = this.ctx;
     const canvas = this.canvasRef.nativeElement;
@@ -282,4 +294,36 @@ export class TrackViewComponent implements AfterViewInit {
     ctx.restore();
 
   }
+
+
+
+  //CAR LOGIC
+
+  private drawCar(state: CarState) {
+  const ctx = this.ctx;
+  ctx.save();
+  ctx.translate(state.position.x, state.position.y);
+  ctx.rotate(state.heading);
+
+  // Car body
+  ctx.fillStyle = '#f59e0b';
+  ctx.fillRect(-15, -8, 30, 16);
+
+  // Suspension + tires
+  const wheelOffsetX = 12;
+  const wheelOffsetY = 6;
+
+  ctx.fillStyle = '#111';
+  // Front-left
+  ctx.fillRect(-wheelOffsetX, -wheelOffsetY, 5, 5);
+  // Front-right
+  ctx.fillRect(-wheelOffsetX, wheelOffsetY-5, 5, 5);
+  // Rear-left
+  ctx.fillRect(wheelOffsetX-5, -wheelOffsetY, 5, 5);
+  // Rear-right
+  ctx.fillRect(wheelOffsetX-5, wheelOffsetY-5, 5, 5);
+
+  ctx.restore();
+}
+
 }
