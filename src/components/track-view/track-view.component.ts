@@ -15,7 +15,6 @@ interface Segment {
   heading: number;   // radians, tangent heading at start
 }
 
-
 //Current position of the Car 
 interface CarState {
   segmentIndex: number;
@@ -24,8 +23,6 @@ interface CarState {
   heading: number;             // radians
   position: { x: number; y: number };
 }
-
-
 
 @Component({
   selector: 'app-track-view',
@@ -46,6 +43,10 @@ export class TrackViewComponent implements AfterViewInit {
     { label: 'Curve 180°', type: 'curve180' as PieceType, radius: 60, angle: 180 },
   ];
 
+  private car = new Car();
+  private lastTime = 0;
+  private isSimulating = false
+
   segments: Segment[] = [];
   private dragPreview: any = null;
   private previewTurnRight = false; // flip curve direction during drag
@@ -56,6 +57,10 @@ export class TrackViewComponent implements AfterViewInit {
     if (!ctx) throw new Error('Canvas 2D context unavailable');
     this.ctx = ctx;
     this.drawAll();
+
+
+    this.lastTime = performance.now();
+    requestAnimationFrame(this.animate.bind(this));
 
     // keyboard toggles
     window.addEventListener('keydown', (e) => {
@@ -300,30 +305,159 @@ export class TrackViewComponent implements AfterViewInit {
   //CAR LOGIC
 
   private drawCar(state: CarState) {
-  const ctx = this.ctx;
-  ctx.save();
-  ctx.translate(state.position.x, state.position.y);
-  ctx.rotate(state.heading);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(state.position.x, state.position.y);
+    ctx.rotate(state.heading);
 
-  // Car body
-  ctx.fillStyle = '#f59e0b';
-  ctx.fillRect(-15, -8, 30, 16);
+    // Car body
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(-15, -8, 30, 16);
 
-  // Suspension + tires
-  const wheelOffsetX = 12;
-  const wheelOffsetY = 6;
+    // Suspension + tires
+    const wheelOffsetX = 12;
+    const wheelOffsetY = 6;
 
-  ctx.fillStyle = '#111';
-  // Front-left
-  ctx.fillRect(-wheelOffsetX, -wheelOffsetY, 5, 5);
-  // Front-right
-  ctx.fillRect(-wheelOffsetX, wheelOffsetY-5, 5, 5);
-  // Rear-left
-  ctx.fillRect(wheelOffsetX-5, -wheelOffsetY, 5, 5);
-  // Rear-right
-  ctx.fillRect(wheelOffsetX-5, wheelOffsetY-5, 5, 5);
+    ctx.fillStyle = '#111';
+    // Front-left
+    ctx.fillRect(-wheelOffsetX, -wheelOffsetY, 5, 5);
+    // Front-right
+    ctx.fillRect(-wheelOffsetX, wheelOffsetY - 5, 5, 5);
+    // Rear-left
+    ctx.fillRect(wheelOffsetX - 5, -wheelOffsetY, 5, 5);
+    // Rear-right
+    ctx.fillRect(wheelOffsetX - 5, wheelOffsetY - 5, 5, 5);
 
-  ctx.restore();
+    ctx.restore();
+  }
+
+  private animate(timestamp: number) {
+    const dt = (timestamp - this.lastTime) / 1000;
+    this.lastTime = timestamp;
+
+    this.drawAll();
+
+    if (this.isSimulating) {
+      this.car.update(dt, this.segments);
+      this.drawCar(this.car.state);
+    }
+
+    requestAnimationFrame(this.animate.bind(this));
+  }
+
+  public startSimulation() {
+    if (this.segments.length < 2 || this.segments[0].type !== 'start') {
+      alert('You need a Start piece and at least one track segment.');
+      return;
+    }
+    this.car = new Car();
+    this.car.state.position = { ...this.segments[0].position };
+    this.car.state.heading = this.segments[0].heading;
+    this.lastTime = performance.now();
+    this.isSimulating = true;
+    requestAnimationFrame(this.animate.bind(this));
+  }
+
+
 }
+
+
+class Car {
+  mass = 1000;
+  enginePower = 100;
+  dragCoeff = 0.3;
+  frontalArea = 2.2;
+  tireGrip = 0.8;
+  downforce = 0;
+
+  state: CarState = {
+    segmentIndex: 0,
+    distanceAlongSegment: 0,
+    speed: 0,
+    heading: 0,
+    position: { x: 0, y: 0 }
+  };
+
+  update(dt: number, track: Segment[]) {
+    if (track.length === 0) return;
+
+    // Constants
+    const rho = 1.225; // air density kg/m³
+    const g = 9.81;
+
+    // Forces
+    const v = this.state.speed; // px/s (we assume px ~ m for simplicity)
+    const engineForce = (this.enginePower * 1000) / Math.max(v, 1); // avoid div by 0
+    const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
+    const normalForce = this.mass * g + this.downforce;
+    const tireForce = this.tireGrip * normalForce;
+
+    // Net force (simplified)
+    const traction = Math.min(engineForce, tireForce);
+    const netForce = traction - dragForce;
+
+    const accel = netForce / this.mass;
+
+    // Update speed
+    this.state.speed += accel * dt;
+    if (this.state.speed < 0) this.state.speed = 0;
+
+    // Move along track
+    let remaining = this.state.speed * dt;
+    while (remaining > 0) {
+      const seg = track[this.state.segmentIndex];
+      const segLength = this.getSegmentLength(seg);
+
+      const leftInSeg = segLength - this.state.distanceAlongSegment;
+      if (remaining < leftInSeg) {
+        this.state.distanceAlongSegment += remaining;
+        remaining = 0;
+      } else {
+        remaining -= leftInSeg;
+        this.state.segmentIndex = (this.state.segmentIndex + 1) % track.length; // loop track
+        this.state.distanceAlongSegment = 0;
+      }
+    }
+
+    // Update position and heading
+    const seg = track[this.state.segmentIndex];
+    const interp = this.computePositionOnSegment(seg, this.state.distanceAlongSegment);
+    this.state.position = { x: interp.x, y: interp.y };
+    this.state.heading = interp.heading;
+  }
+
+  private getSegmentLength(seg: Segment): number {
+    if (seg.type === 'straight') return seg.length ?? 100;
+    if (seg.type.startsWith('curve')) {
+      const angleRad = (seg.angle ?? 90) * Math.PI / 180;
+      return (seg.radius ?? 60) * Math.abs(angleRad);
+    }
+    return 0;
+  }
+
+  private computePositionOnSegment(seg: Segment, dist: number) {
+    if (seg.type === 'straight') {
+      const x = seg.position.x + dist * Math.cos(seg.heading);
+      const y = seg.position.y + dist * Math.sin(seg.heading);
+      return { x, y, heading: seg.heading };
+    }
+
+    const R = seg.radius ?? 60;
+    const angleRad = (seg.angle ?? 90) * Math.PI / 180;
+    const sign = Math.sign(angleRad);
+    const cx = seg.position.x - sign * R * Math.sin(seg.heading);
+    const cy = seg.position.y + sign * R * Math.cos(seg.heading);
+
+    const startAngle = Math.atan2(seg.position.y - cy, seg.position.x - cx);
+    const arcFrac = dist / (R * Math.abs(angleRad));
+    const newAngle = startAngle + arcFrac * angleRad;
+
+    const x = cx + R * Math.cos(newAngle);
+    const y = cy + R * Math.sin(newAngle);
+    const heading = seg.heading + arcFrac * angleRad;
+
+    return { x, y, heading };
+  }
+
 
 }
