@@ -1,0 +1,37 @@
+<!-- Track layout based off of an array or gps coordinates -->
+<!-- Car is simulated based off car-settings values -->
+
+<!--Track layout "canvas"-->
+
+<div>
+    <h2>Track Layout "Canvas"</h2>
+
+
+
+    <div class="builder">
+        <aside class="palette">
+            <h3>Pieces</h3>
+            <div class="piece" *ngFor="let p of palette" draggable="true" (dragstart)="onDragStart(p)">
+                <div class="pill">{{ p.label }}</div>
+            </div>
+
+
+
+            <div class="legend">
+                <p><span class="chip start"></span>Start</p>
+                <p><span class="chip straight"></span>Straight</p>
+                <p><span class="chip curve"></span>Curve</p>
+            </div>
+        </aside>
+
+
+        <main class="stage" #canvasHost (dragover)="onDragOver($event)" (drop)="onDrop($event)">
+            <canvas #canvas width="1200" height="800"></canvas>
+            <div class="hint">
+                <p><b>How to build:</b> drag a <i>Start</i> onto the canvas, then drag straights/curves. Pieces snap &
+                    rotate to connect automatically.</p>
+                <p>Tip: Use the preview rotate buttons to flip curve direction before dropping.</p>
+            </div>
+        </main>
+    </div>
+</div>

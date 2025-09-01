@@ -1,0 +1,106 @@
+.builder {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.palette {
+    width: 280px;
+    flex: 0 0 280px;
+    border-right: 1px solid #e5e5e5;
+    padding-right: 12px;
+}
+
+.stage {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: repeating-conic-gradient(#f7f7f7 0 15deg, #ffffff 0 30deg);
+}
+
+canvas {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, .05)
+}
+
+.piece {
+    margin-bottom: 8px
+}
+
+.pill {
+    display: inline-block;
+    background: #111827;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    cursor: grab;
+}
+
+.controls {
+    margin-top: 16px;
+    display: grid;
+    gap: 8px
+}
+
+.controls .row {
+    display: flex;
+    gap: 8px
+}
+
+.controls button {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    cursor: pointer
+}
+
+.controls input {
+    width: 80px;
+    margin-left: 6px
+}
+
+.hint {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    background: rgba(255, 255, 255, .9);
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 50ch
+}
+
+.legend {
+    margin-top: 16px;
+    font-size: 12px
+}
+
+.chip {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    margin-right: 6px;
+    vertical-align: middle
+}
+
+.chip.start {
+    background: linear-gradient(90deg, #111, #eee 50%, #111 50%)
+}
+
+.chip.straight {
+    background: #64748b
+}
+
+.chip.curve {
+    background: conic-gradient(from 0deg, #ef4444 0 25%, #fff 0 50%, #ef4444 0 75%, #fff 0)
+}

@@ -1,0 +1,47 @@
+{
+    "tracks": [
+        {
+            "name": "Oval Track",
+            "width": 12,
+            "segments": [
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 }
+            ]
+        },
+        {
+            "name": "Test Track",
+            "width": 10,
+            "segments": [
+                { "type": "straight", "length": 80 },
+                { "type": "curve", "radius": 40, "angle": 90 },
+                { "type": "straight", "length": 80 },
+                { "type": "curve", "radius": 40, "angle": 90 },
+                { "type": "straight", "length": 80 },
+                { "type": "curve", "radius": 40, "angle": 90 },
+                { "type": "straight", "length": 80 },
+                { "type": "curve", "radius": 40, "angle": 90 }
+            ]
+        },
+        {
+            "name": "Suzuka GP - Japan",
+            "width": 12,
+            "segments": [
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 },
+                { "type": "straight", "length": 100 },
+                { "type": "curve", "radius": 50, "angle": 90 }
+            ]
+        }
+
+    ]
+}

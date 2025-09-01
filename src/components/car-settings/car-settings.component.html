@@ -1,0 +1,38 @@
+<div class="sidenav">
+    <h2>Car Settings</h2>
+    <!--Name of the car-->
+    <p>Car Name: <input type="text" /></p>
+
+    <!--Stats (sliders connected to inputs) [carMass,EnginePower,Drag Coefficient,Frontal Area, Tire Grip,Downforce]-->
+    <p>
+        Car Mass(Kg): 
+        <input type="range" min="400" max="2200" id="carMassRange" [(ngModel)]="carMass" />
+        <input type="number" min="400" max="2200" id="carMassInput" [(ngModel)]="carMass" />
+    </p>
+    <p>
+        Engine Power(Kw): 
+        <input type="range" min="40" max="500" id="enginePowerRange" [(ngModel)]="enginePower" />
+        <input type="number" min="40" max="500" id="enginePowerInput" [(ngModel)]="enginePower" />
+    </p>
+    <p>
+        Drag Coefficient(Cd): 
+        <input type="range" min="0.1" max="1" step="0.01" id="dragCoeffRange" [(ngModel)]="dragCoeff" />
+        <input type="number" min="0.1" max="1" step="0.01" id="dragCoeffInput" [(ngModel)]="dragCoeff" />
+    </p>
+    <p>
+        Frontal Area(m^2): 
+        <input type="range" min="1" max="10" step="0.1" id="frontalAreaRange" [(ngModel)]="frontalArea" />
+        <input type="number" min="1" max="10" step="0.1" id="frontalAreaInput" [(ngModel)]="frontalArea" />
+    </p>
+    <p>
+        Tire Grip(μ): 
+        <input type="range" min="0" max="1" step="0.01" id="tireGripRange" [(ngModel)]="tireGrip" />
+        <input type="number" min="0" max="1" step="0.01" id="tireGripInput" [(ngModel)]="tireGrip" />
+    </p>
+    <p>
+        Downforce(N): 
+        <input type="range" min="0" max="1000" id="downforceRange" [(ngModel)]="downforce" />
+        <input type="number" min="0" max="1000" id="downforceInput" [(ngModel)]="downforce" />
+    </p>
+
+</div>
