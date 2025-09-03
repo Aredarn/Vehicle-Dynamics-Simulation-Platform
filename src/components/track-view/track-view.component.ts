@@ -5,6 +5,8 @@ import { FormsModule } from '@angular/forms';
 type PieceType = 'start' | 'straight' | 'curve45' | 'curve90' | 'curve180';
 type Direction = 'left' | 'right';
 
+const roadWidth = 35;
+
 interface Segment {
   id: string;
   type: PieceType;
@@ -248,7 +250,6 @@ export class TrackViewComponent implements AfterViewInit {
   private drawStraight(seg: Segment, ghost = false) {
     const ctx = this.ctx;
     const L = seg.length ?? 100;
-    const w = 12;
     ctx.save();
     ctx.translate(seg.position.x, seg.position.y);
     ctx.rotate(seg.heading);
@@ -257,7 +258,7 @@ export class TrackViewComponent implements AfterViewInit {
     // road rect
     ctx.fillStyle = '#374151';
     ctx.beginPath();
-    ctx.rect(0, -w / 2, L, w);
+    ctx.rect(0, -roadWidth / 2, L, roadWidth);
     ctx.fill();
 
     // centerline
@@ -284,7 +285,7 @@ export class TrackViewComponent implements AfterViewInit {
     const startAngle = Math.atan2(y0 - cy, x0 - cx);
     const endAngle = startAngle + angleRad;
 
-    const roadWidth = 12;
+    
 
     ctx.save();
     ctx.globalAlpha = ghost ? 0.4 : 1;
@@ -435,6 +436,7 @@ class Car {
     return 0;
   }
 
+  // 
   private computePositionOnSegment(seg: Segment, dist: number) {
     if (seg.type === 'straight') {
       const x = seg.position.x + dist * Math.cos(seg.heading);
