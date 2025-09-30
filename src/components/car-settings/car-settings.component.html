@@ -2,7 +2,6 @@
     <h2>Car Settings</h2>
     <!--Name of the car-->
     <p>Car Name: <input type="text" /></p>
-
     <!--Stats (sliders connected to inputs) [carMass,EnginePower,Drag Coefficient,Frontal Area, Tire Grip,Downforce]-->
     <p>
         Car Mass(Kg): 
@@ -34,5 +33,14 @@
         <input type="range" min="0" max="1000" id="downforceRange" [(ngModel)]="downforce" />
         <input type="number" min="0" max="1000" id="downforceInput" [(ngModel)]="downforce" />
     </p>
-
+    <p>
+        Final drive ratio: 
+        <input type="range" min="0" max="5" step="0.01" id="finalDriveRange" [(ngModel)]="finalDrive" />
+        <input type="number" min="0" max="5" step="0.01" id="finalDriveInput" [(ngModel)]="finalDrive" />
+    </p>
+    <p>
+        Wheelbase(m):
+        <input type="range" min="0" max="5" step="0.01" id="wheelbaseRange" [(ngModel)]="wheelbase" />
+        <input type="number" min="0" max="5" step="0.01" id="wheelbaseInput" [(ngModel)]="wheelbase" />
+    </p>
 </div>
