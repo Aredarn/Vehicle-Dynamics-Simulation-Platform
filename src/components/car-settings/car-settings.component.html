@@ -4,43 +4,52 @@
     <p>Car Name: <input type="text" /></p>
     <!--Stats (sliders connected to inputs) [carMass,EnginePower,Drag Coefficient,Frontal Area, Tire Grip,Downforce]-->
     <p>
-        Car Mass(Kg): 
-        <input type="range" min="400" max="2200" id="carMassRange" [(ngModel)]="carMass" />
-        <input type="number" min="400" max="2200" id="carMassInput" [(ngModel)]="carMass" />
+        Car Mass(Kg):
+        <input type="range" min="400" max="2200" id="carMassRange" [(ngModel)]="car.mass" (ngModelChange)="setCarMass($event)" />
+        <input type="number" min="400" max="2200" id="carMassInput" [(ngModel)]="car.mass" (ngModelChange)="setCarMass($event)" />
     </p>
     <p>
-        Engine Power(Kw): 
-        <input type="range" min="40" max="500" id="enginePowerRange" [(ngModel)]="enginePower" />
-        <input type="number" min="40" max="500" id="enginePowerInput" [(ngModel)]="enginePower" />
+        Engine Power(Kw):
+        <input type="range" min="40" max="500" id="enginePowerRange" [(ngModel)]="car.enginePower" (ngModelChange)="setEnginePower($event)" />
+        <input type="number" min="40" max="500" id="enginePowerInput" [(ngModel)]="car.enginePower" (ngModelChange)="setEnginePower($event)" />
     </p>
     <p>
-        Drag Coefficient(Cd): 
-        <input type="range" min="0.1" max="1" step="0.01" id="dragCoeffRange" [(ngModel)]="dragCoeff" />
-        <input type="number" min="0.1" max="1" step="0.01" id="dragCoeffInput" [(ngModel)]="dragCoeff" />
+        Drag Coefficient(Cd):
+        <input type="range" min="0.1" max="1" step="0.01" id="dragCoeffRange" [(ngModel)]="car.dragCoeff" (ngModelChange)="setDragCoeff($event)" />
+        <input type="number" min="0.1" max="1" step="0.01" id="dragCoeffInput" [(ngModel)]="car.dragCoeff" (ngModelChange)="setDragCoeff($event)" />
     </p>
     <p>
-        Frontal Area(m^2): 
-        <input type="range" min="1" max="10" step="0.1" id="frontalAreaRange" [(ngModel)]="frontalArea" />
-        <input type="number" min="1" max="10" step="0.1" id="frontalAreaInput" [(ngModel)]="frontalArea" />
+        Frontal Area(m^2):
+        <input type="range" min="1" max="10" step="0.1" id="frontalAreaRange" [(ngModel)]="car.frontalArea" (ngModelChange)="setFrontalArea($event)" />
+        <input type="number" min="1" max="10" step="0.1" id="frontalAreaInput" [(ngModel)]="car.frontalArea" (ngModelChange)="setFrontalArea($event)" />
     </p>
     <p>
-        Tire Grip(μ): 
-        <input type="range" min="0" max="1" step="0.01" id="tireGripRange" [(ngModel)]="tireGrip" />
-        <input type="number" min="0" max="1" step="0.01" id="tireGripInput" [(ngModel)]="tireGrip" />
+        Tire Grip(μ):
+        <input type="range" min="0" max="1" step="0.01" id="tireGripRange" [(ngModel)]="car.tireGrip" (ngModelChange)="setTireGrip($event)" />
+        <input type="number" min="0" max="1" step="0.01" id="tireGripInput" [(ngModel)]="car.tireGrip" (ngModelChange)="setTireGrip($event)" />
     </p>
     <p>
-        Downforce(N): 
-        <input type="range" min="0" max="1000" id="downforceRange" [(ngModel)]="downforce" />
-        <input type="number" min="0" max="1000" id="downforceInput" [(ngModel)]="downforce" />
+        Downforce(N):
+        <input type="range" min="0" max="1000" id="downforceRange" [(ngModel)]="car.downforce" (ngModelChange)="setDownforce($event)" />
+        <input type="number" min="0" max="1000" id="downforceInput" [(ngModel)]="car.downforce" (ngModelChange)="setDownforce($event)" />
     </p>
     <p>
-        Final drive ratio: 
-        <input type="range" min="0" max="5" step="0.01" id="finalDriveRange" [(ngModel)]="finalDrive" />
-        <input type="number" min="0" max="5" step="0.01" id="finalDriveInput" [(ngModel)]="finalDrive" />
+        Final drive ratio:
+        <input type="range" min="0" max="5" step="0.01" id="finalDriveRange" [(ngModel)]="car.finalDrive" (ngModelChange)="setFinalDrive($event)" />
+        <input type="number" min="0" max="5" step="0.01" id="finalDriveInput" [(ngModel)]="car.finalDrive" (ngModelChange)="setFinalDrive($event)" />
     </p>
     <p>
         Wheelbase(m):
-        <input type="range" min="0" max="5" step="0.01" id="wheelbaseRange" [(ngModel)]="wheelbase" />
-        <input type="number" min="0" max="5" step="0.01" id="wheelbaseInput" [(ngModel)]="wheelbase" />
+        <input type="range" min="0" max="5" step="0.01" id="wheelbaseRange" [(ngModel)]="car.wheelbase" (ngModelChange)="setWheelbase($event)" />
+        <input type="number" min="0" max="5" step="0.01" id="wheelbaseInput" [(ngModel)]="car.wheelbase" (ngModelChange)="setWheelbase($event)" />
     </p>
+
+    <hr>
+
+    <div class="performance-metrics">
+        <h3>Performance Metrics</h3>
+        <p>0-100 Km/h: {{ getPerformance().acceleration | number:'1.3-3' }} s</p>
+        <p>Top Speed: {{ getPerformance().topSpeed | number:'1.3-3' }} Km/h</p>
+    </div>
+
 </div>

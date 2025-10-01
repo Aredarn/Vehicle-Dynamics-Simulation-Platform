@@ -1,24 +1,15 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild, AfterViewInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-
-type PieceType = 'start' | 'straight' | 'curve45' | 'curve90' | 'curve180';
-type Direction = 'left' | 'right';
+import { Subscription } from 'rxjs';
+import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
+import { Car } from '../../models/Car';
+import { PieceType, Segment } from '../../models/Track';
 
 const roadWidth = 35;
 
-interface Segment {
-  id: string;
-  type: PieceType;
-  length?: number;   // for straight (pixels)
-  radius?: number;   // for curves (pixels)
-  angle?: number;    // signed degrees: + = left, - = right
-  position: { x: number; y: number }; // start point of the segment (canvas px)
-  heading: number;   // radians, tangent heading at start
-}
-
 //Current position of the Car 
-interface CarState {
+export interface CarState {
   segmentIndex: number;
   distanceAlongSegment: number; // in pixels
   speed: number;               // pixels per second
@@ -34,8 +25,11 @@ interface CarState {
   styleUrls: ['./track-view.component.scss']
 })
 export class TrackViewComponent implements AfterViewInit {
-  @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
+  private settingsSub!: Subscription;
+  private car!: Car;
 
+  @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
+  constructor(private settingsService: CarSettingsService) { }
   // palette
   palette = [
     { label: 'Start', type: 'start' as PieceType, length: 40 },
@@ -45,7 +39,6 @@ export class TrackViewComponent implements AfterViewInit {
     { label: 'Curve 180°', type: 'curve180' as PieceType, radius: 60, angle: 180 },
   ];
 
-  private car = new Car();
   private lastTime = 0;
   private isSimulating = false
 
@@ -60,14 +53,21 @@ export class TrackViewComponent implements AfterViewInit {
     this.ctx = ctx;
     this.drawAll();
 
+    // Subscribe to settings changes
+    this.settingsSub = this.settingsService.settings$.subscribe(settings => {
+      if (!this.car) {
+        this.car = new Car(settings);   // first time
+      } else {
+        this.car.updateSpecs(settings); // update live
+      }
+    });
 
     this.lastTime = performance.now();
     requestAnimationFrame(this.animate.bind(this));
+  }
 
-    // keyboard toggles
-    window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'r') { this.previewTurnRight = !this.previewTurnRight; this.drawAll(); }
-    });
+  ngOnDestroy() {
+    this.settingsSub?.unsubscribe();
   }
 
   // ---------- Drag & Drop ----------
@@ -285,7 +285,7 @@ export class TrackViewComponent implements AfterViewInit {
     const startAngle = Math.atan2(y0 - cy, x0 - cx);
     const endAngle = startAngle + angleRad;
 
-    
+
 
     ctx.save();
     ctx.globalAlpha = ghost ? 0.4 : 1;
@@ -300,8 +300,6 @@ export class TrackViewComponent implements AfterViewInit {
     ctx.restore();
 
   }
-
-
 
   //CAR LOGIC
 
@@ -351,115 +349,10 @@ export class TrackViewComponent implements AfterViewInit {
       alert('You need a Start piece and at least one track segment.');
       return;
     }
-    this.car = new Car();
     this.car.state.position = { ...this.segments[0].position };
     this.car.state.heading = this.segments[0].heading;
     this.lastTime = performance.now();
     this.isSimulating = true;
     requestAnimationFrame(this.animate.bind(this));
   }
-
-
-}
-
-
-class Car {
-  mass = 1000;
-  enginePower = 100;
-  dragCoeff = 0.3;
-  frontalArea = 2.2;
-  tireGrip = 0.8;
-  downforce = 0;
-
-  state: CarState = {
-    segmentIndex: 0,
-    distanceAlongSegment: 0,
-    speed: 0,
-    heading: 0,
-    position: { x: 0, y: 0 }
-  };
-
-  update(dt: number, track: Segment[]) {
-    if (track.length === 0) return;
-
-    // Constants
-    const rho = 1.225; // air density kg/m³
-    const g = 9.81;
-
-    // Forces
-    const v = this.state.speed; // px/s (we assume px ~ m for simplicity)
-    const engineForce = (this.enginePower * 1000) / Math.max(v, 1); // avoid div by 0
-    const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
-    const normalForce = this.mass * g + this.downforce;
-    const tireForce = this.tireGrip * normalForce;
-
-    // Net force (simplified)
-    const traction = Math.min(engineForce, tireForce);
-    const netForce = traction - dragForce;
-
-    const accel = netForce / this.mass;
-
-    // Update speed
-    this.state.speed += accel * dt;
-    if (this.state.speed < 0) this.state.speed = 0;
-
-    // Move along track
-    let remaining = this.state.speed * dt;
-    while (remaining > 0) {
-      const seg = track[this.state.segmentIndex];
-      const segLength = this.getSegmentLength(seg);
-
-      const leftInSeg = segLength - this.state.distanceAlongSegment;
-      if (remaining < leftInSeg) {
-        this.state.distanceAlongSegment += remaining;
-        remaining = 0;
-      } else {
-        remaining -= leftInSeg;
-        this.state.segmentIndex = (this.state.segmentIndex + 1) % track.length; // loop track
-        this.state.distanceAlongSegment = 0;
-      }
-    }
-
-    // Update position and heading
-    const seg = track[this.state.segmentIndex];
-    const interp = this.computePositionOnSegment(seg, this.state.distanceAlongSegment);
-    this.state.position = { x: interp.x, y: interp.y };
-    this.state.heading = interp.heading;
-  }
-
-  private getSegmentLength(seg: Segment): number {
-    if (seg.type === 'straight') return seg.length ?? 100;
-    if (seg.type.startsWith('curve')) {
-      const angleRad = (seg.angle ?? 90) * Math.PI / 180;
-      return (seg.radius ?? 60) * Math.abs(angleRad);
-    }
-    return 0;
-  }
-
-  // 
-  private computePositionOnSegment(seg: Segment, dist: number) {
-    if (seg.type === 'straight') {
-      const x = seg.position.x + dist * Math.cos(seg.heading);
-      const y = seg.position.y + dist * Math.sin(seg.heading);
-      return { x, y, heading: seg.heading };
-    }
-
-    const R = seg.radius ?? 60;
-    const angleRad = (seg.angle ?? 90) * Math.PI / 180;
-    const sign = Math.sign(angleRad);
-    const cx = seg.position.x - sign * R * Math.sin(seg.heading);
-    const cy = seg.position.y + sign * R * Math.cos(seg.heading);
-
-    const startAngle = Math.atan2(seg.position.y - cy, seg.position.x - cx);
-    const arcFrac = dist / (R * Math.abs(angleRad));
-    const newAngle = startAngle + arcFrac * angleRad;
-
-    const x = cx + R * Math.cos(newAngle);
-    const y = cy + R * Math.sin(newAngle);
-    const heading = seg.heading + arcFrac * angleRad;
-
-    return { x, y, heading };
-  }
-
-
 }
