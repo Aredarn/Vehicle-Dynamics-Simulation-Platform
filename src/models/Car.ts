@@ -107,8 +107,8 @@ export class Car {
         let minTargetSpeed = this.maxSpeed;
 
         // Look ahead for curves with proper bounds checking
-        for (let i = 0; i < 8; i++) {
-            const lookaheadIdx = currentIdx + i * 3;
+        for (let i = 0; i < 12; i++) {
+            const lookaheadIdx = currentIdx + i * 4;
 
             // SAFETY CHECK: Ensure we don't go beyond array bounds
             if (lookaheadIdx >= this.currentRacingLine.length - 1) {

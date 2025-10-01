@@ -7,7 +7,7 @@ import { Car } from '../../models/Car';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState } from '../../interfaces/car-state';
 
-const roadWidth = 35;     // px
+const roadWidth = 30;     // px
 const PX_PER_M = 10;      // 1m = 10px
 
 @Component({
@@ -26,7 +26,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   // palette pieces (all in px, will be converted to meters)
   palette = [
-    { label: 'Start', type: 'start' as PieceType, length: 40 },
+    { label: 'Start', type: 'start' as PieceType, length: 50 },
     { label: 'Straight 50', type: 'straight' as PieceType, length: 50 },
     { label: 'Straight 100', type: 'straight' as PieceType, length: 100 },
     { label: 'Curve 45°', type: 'curve45' as PieceType, radius: 60, angle: 45 },
@@ -45,16 +45,15 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private racingLine: { x: number, y: number, heading: number }[] = [];
   showRacingLine = true;
 
-  // Default car settings in case service doesn't provide them
   private defaultCarSettings: CarSettings = {
     mass: 1000,
-    enginePower: 450, // Increased power for better acceleration
+    enginePower: 450, 
     dragCoeff: 0.3,
     frontalArea: 2.0,
-    tireGrip: 1.8, // Increased grip for better cornering
-    downforce: 800, // Increased downforce
+    tireGrip: 1.8, 
+    downforce: 800, 
     finalDrive: 3.8,
-    wheelbase: 2.5 // meters
+    wheelbase: 2.5
   };
 
   ngAfterViewInit(): void {
