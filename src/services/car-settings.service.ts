@@ -21,7 +21,7 @@ export class CarSettingsService {
         frontalArea: 2.2,
         tireGrip: 0.8,
         downforce: 0,
-        finalDrive: 3.5,
+        finalDrive: 3.8,
         wheelbase: 2.5 // meters
     });
 
