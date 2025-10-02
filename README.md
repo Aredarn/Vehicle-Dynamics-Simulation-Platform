@@ -17,7 +17,7 @@ This project is for myself to learn a bit more physics and get more experience. 
 <img width="900" height="410" alt="Képernyőkép 2025-10-02 151833" src="https://github.com/user-attachments/assets/24474e58-cd6e-4ce5-b77f-e5ddaeb1dd43" />
 
 
-##How to use:
+## How to use:
 1. Download the code
 2. Install Angular CLI in terminal
 3. Navigate to code
