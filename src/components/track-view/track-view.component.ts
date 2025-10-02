@@ -8,7 +8,7 @@ import { PieceType, Segment } from '../../models/Track';
 import { CarState } from '../../interfaces/car-state';
 
 const roadWidth = 30;     // px
-const PX_PER_M = 10;      // 1m = 10px
+const PX_PER_M = 3;      // 1m = 3px
 
 @Component({
   selector: 'app-track-view',
@@ -27,6 +27,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   // palette pieces (all in px, will be converted to meters)
   palette = [
     { label: 'Start', type: 'start' as PieceType, length: 50 },
+    { label: 'Straight 10', type: 'straight' as PieceType, length: 10 },
     { label: 'Straight 50', type: 'straight' as PieceType, length: 50 },
     { label: 'Straight 100', type: 'straight' as PieceType, length: 100 },
     { label: 'Curve 45°', type: 'curve45' as PieceType, radius: 60, angle: 45 },
@@ -47,11 +48,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   private defaultCarSettings: CarSettings = {
     mass: 1000,
-    enginePower: 450, 
+    enginePower: 450,
     dragCoeff: 0.3,
     frontalArea: 2.0,
-    tireGrip: 1.8, 
-    downforce: 800, 
+    tireGrip: 1.8,
+    downforce: 800,
     finalDrive: 3.8,
     wheelbase: 2.5
   };
@@ -241,7 +242,6 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-
   private generateFallbackRacingLine(segments: Segment[]): { x: number, y: number, heading: number }[] {
     const racingLine: { x: number, y: number, heading: number }[] = [];
 
@@ -260,8 +260,6 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     return racingLine;
   }
-
-
 
   private getSegmentLength(seg: Segment): number {
     if (seg.type === 'straight' || seg.type === 'start') return seg.length ?? 100;
@@ -305,49 +303,48 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private drawRacingLine() {
-        if (this.racingLine.length < 2 || !this.showRacingLine) return;
+    if (this.racingLine.length < 2 || !this.showRacingLine) return;
 
-        const ctx = this.ctx;
-        
-        // Draw smooth racing line
-        ctx.save();
-        ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 0.8;
-        ctx.setLineDash([]);
+    const ctx = this.ctx;
 
-        ctx.beginPath();
-        ctx.moveTo(this.racingLine[0].x * PX_PER_M, this.racingLine[0].y * PX_PER_M);
+    // Draw smooth racing line
+    ctx.save();
+    ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.8;
+    ctx.setLineDash([]);
 
-        for (let i = 1; i < this.racingLine.length; i++) {
-            ctx.lineTo(this.racingLine[i].x * PX_PER_M, this.racingLine[i].y * PX_PER_M);
-        }
+    ctx.beginPath();
+    ctx.moveTo(this.racingLine[0].x * PX_PER_M, this.racingLine[0].y * PX_PER_M);
 
-        ctx.stroke();
-
-        // Draw direction indicators
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 4]);
-        
-        for (let i = 0; i < this.racingLine.length; i += 15) {
-            if (i >= this.racingLine.length) break;
-            
-            const point = this.racingLine[i];
-            const length = 12;
-            ctx.beginPath();
-            ctx.moveTo(point.x * PX_PER_M, point.y * PX_PER_M);
-            ctx.lineTo(
-                point.x * PX_PER_M + Math.cos(point.heading) * length,
-                point.y * PX_PER_M + Math.sin(point.heading) * length
-            );
-            ctx.stroke();
-        }
-        ctx.setLineDash([]);
-
-        ctx.restore();
+    for (let i = 1; i < this.racingLine.length; i++) {
+      ctx.lineTo(this.racingLine[i].x * PX_PER_M, this.racingLine[i].y * PX_PER_M);
     }
 
+    ctx.stroke();
+
+    // Draw direction indicators
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+
+    for (let i = 0; i < this.racingLine.length; i += 15) {
+      if (i >= this.racingLine.length) break;
+
+      const point = this.racingLine[i];
+      const length = 12;
+      ctx.beginPath();
+      ctx.moveTo(point.x * PX_PER_M, point.y * PX_PER_M);
+      ctx.lineTo(
+        point.x * PX_PER_M + Math.cos(point.heading) * length,
+        point.y * PX_PER_M + Math.sin(point.heading) * length
+      );
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    ctx.restore();
+  }
 
   public toggleRacingLine() {
     this.showRacingLine = !this.showRacingLine;
@@ -655,8 +652,14 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.segments = [];
     this.racingLine = [];
     this.isSimulating = false;
+
+    if (this.car) {
+        this.car.resetCar();
+    }
+
     this.drawAll();
-  }
+}
+
 
   public toggleTurnDirection() {
     this.previewTurnRight = !this.previewTurnRight;

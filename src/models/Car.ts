@@ -1,6 +1,7 @@
-import { CarState } from "../interfaces/car-state";
+import { CarState, RacingLinePoint } from "../interfaces/car-state";
 import { CarSettings } from "../services/car-settings.service";
 import { Segment } from "./Track";
+const PX_PER_M = 3;      // 1m = 3px
 
 export class Car {
     mass!: number;
@@ -13,18 +14,16 @@ export class Car {
     wheelbase!: number;
 
     state: CarState = {
-        segmentIndex: 0,
-        distanceAlongSegment: 0,
-        speed: 0,
+        s: 0,                        // meters along racing line
+        speed: 0,                    // m/s
         heading: 0,
         position: { x: 0, y: 0 },
-        racingLineIndex: 0
+        racingLineIndex: 0           // helper for interpolation
     };
 
-    private currentRacingLine: { x: number, y: number, heading: number }[] = [];
-    private lookaheadDistance = 50;
-    private maxSpeed = 80;
 
+    private currentRacingLine: RacingLinePoint[] = [];
+    private maxSpeed = 80; // m/s (~288 km/h)
     constructor(settings: CarSettings) {
         this.updateSpecs(settings);
     }
@@ -38,52 +37,80 @@ export class Car {
         this.downforce = settings.downforce;
     }
 
-    update(dt: number, track: Segment[]) {
-        if (!track.length) return;
+    public resetCar() {
+        this.state = {
+            s: 0,
+            speed: 0,
+            heading: 0,
+            position: { x: 0, y: 0 },
+            racingLineIndex: 0
+        };
+        this.currentRacingLine = [];
+    }
 
-        // Ensure racing line is computed
+    update(dt: number, track: Segment[]) {
+        if (!track.length) {
+            // Reset racing line and car state when track is cleared
+            this.currentRacingLine = [];
+            this.state.s = 0;
+            this.state.speed = 0;
+            this.state.position = { x: 0, y: 0 };
+            this.state.heading = 0;
+            this.state.racingLineIndex = 0;
+            return;
+        }
+
+        // Recompute racing line if none exists
         if (this.currentRacingLine.length === 0) {
             this.currentRacingLine = this.computeRacingLine(track);
-            if (this.currentRacingLine.length === 0) return;
+            this.state.s = 0;
             this.state.racingLineIndex = 0;
+            if (this.currentRacingLine.length === 0) return;
         }
 
-        const rho = 1.225;
-        const g = 9.81;
+        const g = 9.81;           // gravity
+        const rho = 1.225;        // air density
+
         let v = this.state.speed;
 
-        // Calculate target speed based on upcoming curvature
-        const targetSpeed = this.calculateTargetSpeed();
+        // ----------------------
+        // 1. Compute target speed
+        // ----------------------
+        const targetSpeed = this.calculateTargetSpeed(); // fully physics-based
 
-        // Calculate forces
+        // ----------------------
+        // 2. Compute forces
+        // ----------------------
         const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
-        const rollingResistance = 0.02 * this.mass * g;
-
-        // Simple throttle/brake control
-        let throttle = 0;
-        let brake = 0;
-
-        if (v < targetSpeed * 0.9) {
-            throttle = 1.0;
-        } else if (v > targetSpeed * 1.1) {
-            brake = 1.0;
-        } else {
-            throttle = 0.3;
-        }
+        const rollingResistance = 0.015 * this.mass * g;
 
         // Engine force
+        const maxEngineForce = this.enginePower * 500; // simple scaling
+        const normalForce = this.mass * g + this.downforce;
+        const maxTractionForce = this.tireGrip * normalForce;
+
         let engineForce = 0;
-        if (throttle > 0) {
-            const maxEngineForce = this.enginePower * 500;
-            const normalForce = this.mass * g + this.downforce;
-            const maxTractionForce = this.tireGrip * normalForce * 0.8;
-            engineForce = Math.min(throttle * maxEngineForce, maxTractionForce);
+        let brakeForce = 0;
+
+        // ----------------------
+        // 3. Throttle/Brake Control
+        // ----------------------
+        const speedDiff = targetSpeed - v;
+
+        if (speedDiff > 0.5) {
+            // accelerate
+            engineForce = Math.min(maxEngineForce, maxTractionForce);
+        } else if (speedDiff < -0.5) {
+            // brake
+            brakeForce = maxTractionForce;
+        } else {
+            // maintain speed
+            engineForce = 0.3 * maxEngineForce;
         }
 
-        // Brake force
-        const brakeForce = brake * this.tireGrip * (this.mass * g + this.downforce);
-
-        // Net force
+        // ----------------------
+        // 4. Net acceleration
+        // ----------------------
         const netForce = engineForce - dragForce - rollingResistance - brakeForce;
         const acceleration = netForce / this.mass;
 
@@ -92,49 +119,58 @@ export class Car {
         v = Math.max(0, Math.min(v, this.maxSpeed));
         this.state.speed = v;
 
-        // Move along racing line - FIXED BOUNDS CHECKING
+        // ----------------------
+        // 5. Move along racing line
+        // ----------------------
         this.moveAlongRacingLine(v, dt);
     }
+
 
     private calculateTargetSpeed(): number {
         const currentIdx = Math.floor(this.state.racingLineIndex);
 
-        // Safety check - if we don't have enough points, return safe speed
         if (currentIdx >= this.currentRacingLine.length - 1 || this.currentRacingLine.length < 2) {
-            return 20; // Safe speed when near end or not enough points
+            return 20; // default safe speed
         }
 
         let minTargetSpeed = this.maxSpeed;
 
-        // Look ahead for curves with proper bounds checking
-        for (let i = 0; i < 12; i++) {
-            const lookaheadIdx = currentIdx + i * 4;
+        // Maximum lateral acceleration the car can sustain (m/s²)
+        const g = 9.81;
+        const normalForce = this.mass * g + this.downforce;      // N
+        const maxLatAcc = this.tireGrip * normalForce / this.mass; // m/s²
 
-            // SAFETY CHECK: Ensure we don't go beyond array bounds
-            if (lookaheadIdx >= this.currentRacingLine.length - 1) {
-                continue; // Skip if beyond bounds
-            }
+        // Look ahead a few segments
+        const lookaheadSteps = 25;
+        for (let i = 0; i < lookaheadSteps; i++) {
+            const idx = currentIdx + i * 4;
 
-            const currentPoint = this.currentRacingLine[lookaheadIdx];
-            const nextPoint = this.currentRacingLine[lookaheadIdx + 1];
+            if (idx >= this.currentRacingLine.length - 1) continue;
 
-            // SAFETY CHECK: Ensure points exist
-            if (!currentPoint || !nextPoint) {
-                continue;
-            }
+            const p1 = this.currentRacingLine[idx];
+            const p2 = this.currentRacingLine[idx + 1];
 
-            const headingChange = Math.abs(this.normalizeAngle(nextPoint.heading - currentPoint.heading));
-            const distance = this.distanceBetween(currentPoint, nextPoint);
+            if (!p1 || !p2) continue;
 
-            if (distance > 0.1 && headingChange > 0.05) {
-                const curvature = headingChange / distance;
-                const maxCorneringSpeed = 10 + (30 / (1 + curvature * 20));
-                minTargetSpeed = Math.min(minTargetSpeed, maxCorneringSpeed);
-            }
+            const headingChange = this.normalizeAngle(p2.heading - p1.heading);
+            const distance = this.distanceBetween(p1, p2);
+
+            if (distance < 0.01) continue;
+
+            const curvature = Math.abs(headingChange / distance); // 1/m
+
+            // Max speed for this curve: v = sqrt(a_lat / curvature)
+            const maxSpeedCurve = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001));
+
+            minTargetSpeed = Math.min(minTargetSpeed, maxSpeedCurve);
         }
 
-        return Math.max(minTargetSpeed, 8); // Minimum speed of 8 m/s
+        // Clamp min speed
+        minTargetSpeed = Math.max(minTargetSpeed, 5); // minimum speed 5 m/s
+
+        return minTargetSpeed;
     }
+
 
     private normalizeAngle(angle: number): number {
         // Keep angle between -PI and PI
@@ -147,99 +183,79 @@ export class Car {
         return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
     }
 
-    private moveAlongRacingLine(speed: number, dt: number) {
-        if (this.currentRacingLine.length < 4) return;
+    moveAlongRacingLine(v: number, dt: number) {
+        if (this.currentRacingLine.length < 2) return;
 
-        const distanceToMove = speed * dt;
-        this.state.racingLineIndex += distanceToMove;
+        this.state.s += v * dt;
 
-        // Handle looping
-        while (this.state.racingLineIndex >= this.currentRacingLine.length) {
-            this.state.racingLineIndex -= this.currentRacingLine.length;
+        const totalLength = this.currentRacingLine[this.currentRacingLine.length - 1].s;
+
+        // Looping
+        if (this.state.s > totalLength) {
+            this.state.s = this.state.s % totalLength;
+            this.state.racingLineIndex = 0; // reset index for clean interpolation
         }
 
-        // Get four points for cubic interpolation (prev, current, next, next+1)
-        const index = Math.floor(this.state.racingLineIndex);
-        const t = this.state.racingLineIndex - index;
+        const pos = this.interpolatePosition(this.state.s, this.currentRacingLine);
 
-        const prevIndex = (index - 1 + this.currentRacingLine.length) % this.currentRacingLine.length;
-        const currentIndex = index;
-        const nextIndex = (index + 1) % this.currentRacingLine.length;
-        const nextNextIndex = (index + 2) % this.currentRacingLine.length;
+        this.state.position = { x: pos.x, y: pos.y };
+        this.state.heading = pos.heading;
+    }
 
-        // Safety checks
-        const indices = [prevIndex, currentIndex, nextIndex, nextNextIndex];
-        for (const idx of indices) {
-            if (idx < 0 || idx >= this.currentRacingLine.length || !this.currentRacingLine[idx]) {
-                this.state.racingLineIndex = 0;
-                return;
-            }
+
+    interpolatePosition(s: number, racingLine: RacingLinePoint[]) {
+        let i = this.state.racingLineIndex;
+
+        // advance index until we find segment containing s
+        while (i < racingLine.length - 1 && racingLine[i + 1].s < s) {
+            i++;
         }
+        this.state.racingLineIndex = i;
 
-        const p0 = this.currentRacingLine[prevIndex];
-        const p1 = this.currentRacingLine[currentIndex];
-        const p2 = this.currentRacingLine[nextIndex];
-        const p3 = this.currentRacingLine[nextNextIndex];
+        const p1 = racingLine[i];
+        const p2 = racingLine[i + 1];
 
-        // Cubic interpolation for smoother movement
-        this.state.position.x = this.cubicInterpolate(p0.x, p1.x, p2.x, p3.x, t);
-        this.state.position.y = this.cubicInterpolate(p0.y, p1.y, p2.y, p3.y, t);
+        const t = (s - p1.s) / (p2.s - p1.s);
+        const x = p1.x + t * (p2.x - p1.x);
+        const y = p1.y + t * (p2.y - p1.y);
+        const heading = Math.atan2(p2.y - p1.y, p2.x - p1.x);
 
-        // For heading, use linear interpolation between current and next (smoother)
-        let headingDiff = p2.heading - p1.heading;
-        if (headingDiff > Math.PI) headingDiff -= 2 * Math.PI;
-        if (headingDiff < -Math.PI) headingDiff += 2 * Math.PI;
-
-        this.state.heading = p1.heading + headingDiff * t;
-        this.state.heading = this.normalizeAngle(this.state.heading);
+        return { x, y, heading };
     }
 
-    private cubicInterpolate(p0: number, p1: number, p2: number, p3: number, t: number): number {
-        // Catmull-Rom spline interpolation
-        const t2 = t * t;
-        const t3 = t2 * t;
-
-        return 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-        );
-    }
-
-    computeRacingLine(track: Segment[]): { x: number, y: number, heading: number }[] {
+    computeRacingLine(track: Segment[]): RacingLinePoint[] {
         if (track.length === 0) return [];
-        const racingLine: { x: number, y: number, heading: number }[] = [];
 
-        // Generate more points for smoother movement
+        const racingLine: RacingLinePoint[] = [];
+        let totalS = 0;
+        let prevPoint: { x: number, y: number } | null = null;
+
         for (const seg of track) {
             const segLength = this.getSegmentLength(seg);
-            const steps = Math.max(20, Math.ceil(segLength * 2)); // More points!
+            const steps = Math.max(20, Math.ceil(segLength * 2));
 
             for (let i = 0; i <= steps; i++) {
                 const distance = (i / steps) * segLength;
-                const point = this.computeCenterPoint(seg, distance);
-                racingLine.push(point);
+                const point = this.computeCenterPoint(seg, distance); // {x, y, heading}
+
+                if (prevPoint) {
+                    const dx = (point.x - prevPoint.x) / PX_PER_M;
+                    const dy = (point.y - prevPoint.y) / PX_PER_M;
+                    totalS += Math.sqrt(dx * dx + dy * dy);
+                }
+
+                racingLine.push({
+                    x: point.x,
+                    y: point.y,
+                    heading: point.heading,
+                    s: totalS
+                });
+
+                prevPoint = point;
             }
         }
 
         return this.smoothRacingLine(racingLine);
-    }
-
-    private generateSegmentPoints(seg: Segment): { x: number, y: number, heading: number }[] {
-        const points: { x: number, y: number, heading: number }[] = [];
-        const segLength = this.getSegmentLength(seg);
-
-        // Generate enough points for smooth movement
-        const steps = Math.max(8, Math.ceil(segLength));
-
-        for (let i = 0; i <= steps; i++) {
-            const distance = (i / steps) * segLength;
-            const point = this.computeCenterPoint(seg, distance);
-            points.push(point);
-        }
-
-        return points;
     }
 
     private computeCenterPoint(seg: Segment, distance: number): { x: number, y: number, heading: number } {
@@ -284,12 +300,11 @@ export class Car {
         return 100;
     }
 
-    private smoothRacingLine(points: { x: number, y: number, heading: number }[]): { x: number, y: number, heading: number }[] {
+    private smoothRacingLine(points: RacingLinePoint[]): RacingLinePoint[] {
         if (points.length < 3) return points;
 
         let smoothed = [...points];
 
-        // Gentle smoothing to remove wobbles but preserve track alignment
         for (let pass = 0; pass < 2; pass++) {
             const newPoints = [...smoothed];
 
@@ -297,7 +312,8 @@ export class Car {
                 newPoints[i] = {
                     x: (smoothed[i - 1].x * 0.25 + smoothed[i].x * 0.5 + smoothed[i + 1].x * 0.25),
                     y: (smoothed[i - 1].y * 0.25 + smoothed[i].y * 0.5 + smoothed[i + 1].y * 0.25),
-                    heading: smoothed[i].heading
+                    heading: smoothed[i].heading,
+                    s: smoothed[i].s // ✅ keep distance unchanged
                 };
             }
 
@@ -306,4 +322,5 @@ export class Car {
 
         return smoothed;
     }
+
 }
