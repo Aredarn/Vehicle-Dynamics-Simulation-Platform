@@ -48,9 +48,54 @@ export class Car {
         this.currentRacingLine = [];
     }
 
+    private calculateTargetSpeed(): number {
+        const currentIdx = Math.floor(this.state.racingLineIndex);
+
+        // Not enough points, return safe speed
+        if (currentIdx >= this.currentRacingLine.length - 1 || this.currentRacingLine.length < 2) {
+            return 20; // m/s
+        }
+
+        let minTargetSpeed = this.maxSpeed;
+
+        const lookaheadPoints = 12;  // how many points to look ahead
+        const step = 4; // step between points
+
+        for (let i = 0; i < lookaheadPoints; i++) {
+            const lookaheadIdx = currentIdx + i * step;
+            if (lookaheadIdx >= this.currentRacingLine.length - 1) break;
+
+            const p1 = this.currentRacingLine[lookaheadIdx];
+            const p2 = this.currentRacingLine[lookaheadIdx + 1];
+
+            const headingChange = Math.abs(this.normalizeAngle(p2.heading - p1.heading));
+            const distance = this.distanceBetween(p1, p2);
+
+            if (distance < 0.01) continue;
+
+            const curvature = headingChange / distance;
+
+            // Lateral acceleration limit
+            const normalForce = this.mass * 9.81 + this.downforce;
+            const maxLatAcc = this.tireGrip * normalForce / this.mass; // a = F/m
+            const maxSpeed = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001)); // v = sqrt(a / κ)
+
+            minTargetSpeed = Math.min(minTargetSpeed, maxSpeed);
+        }
+
+        return Math.max(minTargetSpeed, 5); // minimum speed
+    }
+
+    private distanceBetween(p1: { x: number, y: number }, p2: { x: number, y: number }): number {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+
     update(dt: number, track: Segment[]) {
         if (!track.length) {
-            // Reset racing line and car state when track is cleared
+            // Reset car if track is cleared
             this.currentRacingLine = [];
             this.state.s = 0;
             this.state.speed = 0;
@@ -60,7 +105,7 @@ export class Car {
             return;
         }
 
-        // Recompute racing line if none exists
+        // Recompute racing line if needed
         if (this.currentRacingLine.length === 0) {
             this.currentRacingLine = this.computeRacingLine(track);
             this.state.s = 0;
@@ -68,107 +113,50 @@ export class Car {
             if (this.currentRacingLine.length === 0) return;
         }
 
-        const g = 9.81;           // gravity
-        const rho = 1.225;        // air density
-
+        const rho = 1.225; // air density
+        const g = 9.81;
         let v = this.state.speed;
 
-        // ----------------------
-        // 1. Compute target speed
-        // ----------------------
-        const targetSpeed = this.calculateTargetSpeed(); // fully physics-based
+        const targetSpeed = this.calculateTargetSpeed();
 
-        // ----------------------
-        // 2. Compute forces
-        // ----------------------
-        const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
-        const rollingResistance = 0.015 * this.mass * g;
+        // Throttle / brake decision
+        const margin = 0.1 * targetSpeed;
+        let throttle = 0;
+        let brake = 0;
 
-        // Engine force
-        const maxEngineForce = this.enginePower * 500; // simple scaling
-        const normalForce = this.mass * g + this.downforce;
-        const maxTractionForce = this.tireGrip * normalForce;
-
-        let engineForce = 0;
-        let brakeForce = 0;
-
-        // ----------------------
-        // 3. Throttle/Brake Control
-        // ----------------------
-        const speedDiff = targetSpeed - v;
-
-        if (speedDiff > 0.5) {
-            // accelerate
-            engineForce = Math.min(maxEngineForce, maxTractionForce);
-        } else if (speedDiff < -0.5) {
-            // brake
-            brakeForce = maxTractionForce;
+        if (v < targetSpeed - margin) {
+            throttle = 1.0;
+        } else if (v > targetSpeed + margin) {
+            brake = 1.0;
         } else {
-            // maintain speed
-            engineForce = 0.3 * maxEngineForce;
+            throttle = 0.3;
+            brake = 0;
         }
 
-        // ----------------------
-        // 4. Net acceleration
-        // ----------------------
+        // Forces
+        const normalForce = this.mass * g + this.downforce;
+        const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
+        const rollingResistance = 0.02 * normalForce;
+
+        const maxTractionForce = this.tireGrip * normalForce;
+
+        // Engine force limited by traction
+        const engineForce = throttle > 0 ? Math.min(throttle * this.enginePower * 500, maxTractionForce) : 0;
+
+        // Brake force limited by traction
+        const brakeForce = brake > 0 ? brake * maxTractionForce : 0;
+
+        // Net longitudinal force
         const netForce = engineForce - dragForce - rollingResistance - brakeForce;
         const acceleration = netForce / this.mass;
 
-        // Update velocity
+        // Update speed
         v += acceleration * dt;
         v = Math.max(0, Math.min(v, this.maxSpeed));
         this.state.speed = v;
 
-        // ----------------------
-        // 5. Move along racing line
-        // ----------------------
+        // Move along racing line
         this.moveAlongRacingLine(v, dt);
-    }
-
-
-    private calculateTargetSpeed(): number {
-        const currentIdx = Math.floor(this.state.racingLineIndex);
-
-        if (currentIdx >= this.currentRacingLine.length - 1 || this.currentRacingLine.length < 2) {
-            return 20; // default safe speed
-        }
-
-        let minTargetSpeed = this.maxSpeed;
-
-        // Maximum lateral acceleration the car can sustain (m/s²)
-        const g = 9.81;
-        const normalForce = this.mass * g + this.downforce;      // N
-        const maxLatAcc = this.tireGrip * normalForce / this.mass; // m/s²
-
-        // Look ahead a few segments
-        const lookaheadSteps = 25;
-        for (let i = 0; i < lookaheadSteps; i++) {
-            const idx = currentIdx + i * 4;
-
-            if (idx >= this.currentRacingLine.length - 1) continue;
-
-            const p1 = this.currentRacingLine[idx];
-            const p2 = this.currentRacingLine[idx + 1];
-
-            if (!p1 || !p2) continue;
-
-            const headingChange = this.normalizeAngle(p2.heading - p1.heading);
-            const distance = this.distanceBetween(p1, p2);
-
-            if (distance < 0.01) continue;
-
-            const curvature = Math.abs(headingChange / distance); // 1/m
-
-            // Max speed for this curve: v = sqrt(a_lat / curvature)
-            const maxSpeedCurve = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001));
-
-            minTargetSpeed = Math.min(minTargetSpeed, maxSpeedCurve);
-        }
-
-        // Clamp min speed
-        minTargetSpeed = Math.max(minTargetSpeed, 5); // minimum speed 5 m/s
-
-        return minTargetSpeed;
     }
 
 
@@ -179,9 +167,6 @@ export class Car {
         return angle;
     }
 
-    private distanceBetween(p1: { x: number, y: number }, p2: { x: number, y: number }): number {
-        return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-    }
 
     moveAlongRacingLine(v: number, dt: number) {
         if (this.currentRacingLine.length < 2) return;
