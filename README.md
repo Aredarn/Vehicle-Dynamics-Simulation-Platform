@@ -1,27 +1,27 @@
 # VDSP
+Simulation of a racecar in Angular/TS
+## Motivation
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 18.0.4.
+This project is for myself to learn a bit more physics and get more experience. The purpose of this web-app is to simulate a specified car around a user-created track.
 
-## Development server
+**These attributes are these at the moment:**
+- Weight (Kg)
+- Engine Power output (Kw)
+- Drag Coefficient
+- Frontal area (width*height of the car in m<sup>2</sup>)
+- Tire grip (μ)
+- Downforce (N)
+- Final drive ratio (NOT YET WORKING)
+- Wheelbase (in meter NOT YET WORKING)
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+<img width="900" height="410" alt="Képernyőkép 2025-10-02 151833" src="https://github.com/user-attachments/assets/24474e58-cd6e-4ce5-b77f-e5ddaeb1dd43" />
 
-## Code scaffolding
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+##How to use:
+1. Download the code
+2. Install Angular CLI in terminal
+3. Navigate to code
+4. Open in browser
 
-## Build
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
-
-## Running unit tests
-
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
-
-## Running end-to-end tests
-
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
-
-## Further help
-
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+## Formulas:
