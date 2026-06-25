@@ -4,7 +4,9 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
 import { RacingLineOptimizerService } from '../../services/racing-line-optimizer.service';
+import { AIDrivingService, AIGenerationStats } from '../../services/ai-driving.service';
 import { Car } from '../../models/Car';
+import { CarAgent } from '../../models/CarAgent';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 
@@ -26,14 +28,31 @@ interface Camera {
 })
 export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private settingsSub!: Subscription;
+  private aiStatsSub!: Subscription;
+  private aiAgentsSub!: Subscription;
   private car!: Car;
   private carColor: [string, string] = ['#3b82f6', '#60a5fa'];
+  private trainingAgents: CarAgent[] = [];
+  aiStats: AIGenerationStats = {
+    generation: 0,
+    bestFitness: 0,
+    bestLapTime: 0,
+    aliveCount: 0,
+    averageFitness: 0,
+    active: false,
+  };
+  aiConfig = {
+    populationSize: 20,
+    generations: 25,
+    mutationRate: 0.2,
+  };
 
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
 
   constructor(
     private settingsService: CarSettingsService,
     private lineOptimizer: RacingLineOptimizerService,
+    private aiDrivingService: AIDrivingService,
   ) {}
 
   palette = [
@@ -82,12 +101,24 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.drawAll();
     });
 
+    this.aiStatsSub = this.aiDrivingService.stats$.subscribe(stats => {
+      this.aiStats = stats;
+      this.drawAll();
+    });
+
+    this.aiAgentsSub = this.aiDrivingService.agents$.subscribe(agents => {
+      this.trainingAgents = agents;
+      this.drawAll();
+    });
+
     this.lastTime = performance.now();
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
   }
 
   ngOnDestroy() {
     this.settingsSub?.unsubscribe();
+    this.aiStatsSub?.unsubscribe();
+    this.aiAgentsSub?.unsubscribe();
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
   }
 
@@ -376,6 +407,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     for (const s of this.segments) this.drawSegment(s);
     this.drawRacingLine();
+    this.drawTrainingAgents();
 
     if (this.dragPreview && this.segments.length) {
       const last = this.segments[this.segments.length - 1];
@@ -405,6 +437,31 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       ctx.lineTo(this.racingLine[i].x * PX_PER_M, this.racingLine[i].y * PX_PER_M);
     }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawTrainingAgents() {
+    if (!this.trainingAgents.length) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+
+    for (const agent of this.trainingAgents) {
+      const { x, y, heading, alive } = agent.state;
+      const size = 8 / this.camera.scale;
+      ctx.save();
+      ctx.translate(x * PX_PER_M, y * PX_PER_M);
+      ctx.rotate(heading);
+      ctx.fillStyle = alive ? '#facc15' : '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.6, -size * 0.7);
+      ctx.lineTo(-size * 0.6, size * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 
@@ -575,7 +632,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ---------- Simulation Control ----------
-  startSimulation() {
+  async startSimulation() {
     if (this.segments.length < 2 || this.segments[0].type !== 'start') {
       alert('You need a Start piece and at least one track segment.');
       return;
@@ -597,6 +654,32 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.lastTime = performance.now();
     this.isSimulating = true;
+  }
+
+  async startAITraining() {
+    if (this.segments.length < 2 || this.segments[0].type !== 'start') {
+      alert('You need a Start piece and at least one track segment.');
+      return;
+    }
+
+    this.trainingAgents = [];
+    this.aiStats = { ...this.aiStats, active: true };
+    const result = await this.aiDrivingService.train(
+      this.settingsService.getSettings(),
+      this.segments,
+      this.aiConfig
+    );
+    if (result.bestAgents.length) {
+      const best = result.bestAgents[0];
+      this.racingLine = best.trajectory;
+      this.estimatedLapTime = best.state.lapTime;
+      this.useOptimizedLine = false;
+    }
+    this.drawAll();
+  }
+
+  stopAITraining() {
+    this.aiDrivingService.stopTraining();
   }
 
   stopSimulation() { this.isSimulating = false; }
@@ -649,6 +732,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   get carSpeed(): string { return this.car ? `${(this.car.state.speed * 3.6).toFixed(1)} km/h` : '0 km/h'; }
   get carName(): string { return this.settingsService.getSettings().name; }
   get segmentCount(): number { return Math.max(0, this.segments.length - 1); }
+  get isTraining(): boolean { return this.aiStats.active; }
+  get trainingLabel(): string { return this.isTraining ? 'Training AI...' : 'Train AI'; }
 
   get trackLength(): string {
     if (this.racingLine.length < 2) return '0 m';

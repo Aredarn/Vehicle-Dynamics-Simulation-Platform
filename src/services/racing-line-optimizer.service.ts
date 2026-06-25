@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { RacingLinePoint } from '../interfaces/car-state';
 import { CarSettings } from './car-settings.service';
-import { maxLateralAcceleration, maxLongitudinalForce } from '../utils/car-physics';
+import { maxLateralAcceleration, maxLongitudinalForce, maxBrakingDeceleration } from '../utils/car-physics';
 
 export interface OptimizedRacingLine {
   points: RacingLinePoint[];
@@ -22,8 +22,7 @@ export class RacingLineOptimizerService {
 
     const curvatures = this.computeCurvatures(centerline);
     const maxLatAcc = maxLateralAcceleration(settings);
-    const g = 9.81;
-    const maxBrakeDecel = settings.tireGrip * g * 0.85;
+    const maxBrakeDecel = maxBrakingDeceleration(settings);
 
     const speedLimits = centerline.map((_, i) => {
       const kappa = curvatures[i];
@@ -37,7 +36,7 @@ export class RacingLineOptimizerService {
       const ds = centerline[i].s - centerline[i - 1].s;
       if (ds <= 0) continue;
       const vPrev = targetSpeeds[i - 1];
-      const maxAccel = maxLongitudinalForce(settings, Math.max(vPrev, 1), 1) / settings.mass;
+      const maxAccel = Math.max(0, maxLongitudinalForce(settings, Math.max(vPrev, 1), 1) / settings.mass);
       const vFromAccel = Math.sqrt(vPrev * vPrev + 2 * maxAccel * ds);
       targetSpeeds[i] = Math.min(targetSpeeds[i], vFromAccel);
     }

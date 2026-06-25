@@ -70,6 +70,39 @@
     </div>
 
     <div class="control-group">
+      <h4>AI Training</h4>
+      <div class="settings-grid">
+        <label>
+          Population
+          <input type="number" min="4" [(ngModel)]="aiConfig.populationSize" />
+        </label>
+        <label>
+          Generations
+          <input type="number" min="1" [(ngModel)]="aiConfig.generations" />
+        </label>
+        <label>
+          Mutation
+          <input type="number" min="0" max="1" step="0.01" [(ngModel)]="aiConfig.mutationRate" />
+        </label>
+      </div>
+      <div class="button-group">
+        <button class="btn" (click)="startAITraining()" [disabled]="isTraining">
+          {{ trainingLabel }}
+        </button>
+        <button class="btn btn--ghost" (click)="stopAITraining()" [disabled]="!isTraining">
+          ■ Stop Training
+        </button>
+      </div>
+      <div class="info-display" *ngIf="aiStats.generation > 0">
+        <p><strong>Gen:</strong> {{ aiStats.generation }} / {{ aiConfig.generations }}</p>
+        <p><strong>Best lap:</strong> {{ aiStats.bestLapTime }}s</p>
+        <p><strong>Best fitness:</strong> {{ aiStats.bestFitness }}</p>
+        <p><strong>Alive:</strong> {{ aiStats.aliveCount }}</p>
+        <p><strong>Avg fitness:</strong> {{ aiStats.averageFitness }}</p>
+      </div>
+    </div>
+
+    <div class="control-group">
       <h4>Display</h4>
       <div class="button-group">
         <button class="btn btn--ghost" (click)="toggleRacingLine()">

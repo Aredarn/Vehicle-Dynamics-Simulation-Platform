@@ -1,5 +1,6 @@
 import { CarState, RacingLinePoint } from "../interfaces/car-state";
 import { CarSettings } from "../services/car-settings.service";
+import { calculatePerformance } from "../utils/car-physics";
 import { Segment } from "./Track";
 
 export class Car {
@@ -36,6 +37,8 @@ export class Car {
         this.downforce = settings.downforce;
         this.finalDrive = settings.finalDrive;
         this.wheelbase = settings.wheelbase;
+        const performance = calculatePerformance(settings);
+        this.maxSpeed = performance.topSpeed / 3.6;
         this.invalidateRacingLine();
     }
 
@@ -148,11 +151,15 @@ export class Car {
         const rollingResistance = 0.02 * normalForce;
         const maxTractionForce = this.tireGrip * normalForce;
 
+        const powerW = this.enginePower * 1000;
+        const efficiency = 0.9;
+        const driveRatio = this.finalDrive / 3.8;
+        const effectivePower = powerW * efficiency;
         const engineForce = throttle > 0
-            ? Math.min(this.computeEngineForce(v, throttle), maxTractionForce)
+            ? Math.min(this.computeEngineForce(v, throttle, effectivePower, driveRatio), maxTractionForce)
             : 0;
 
-        const brakeForce = brake > 0 ? brake * maxTractionForce : 0;
+        const brakeForce = brake > 0 ? Math.min(brake * maxTractionForce, maxTractionForce) : 0;
         const netForce = engineForce - dragForce - rollingResistance - brakeForce;
         const acceleration = netForce / this.mass;
 
@@ -163,10 +170,8 @@ export class Car {
         this.moveAlongRacingLine(v, dt);
     }
 
-    private computeEngineForce(speed: number, throttle: number): number {
-        const powerW = this.enginePower * 1000;
-        const driveRatio = this.finalDrive / 3.8;
-        return throttle * (speed > 0.5 ? powerW / speed : powerW) * driveRatio;
+    private computeEngineForce(speed: number, throttle: number, effectivePower: number, driveRatio: number): number {
+        return throttle * (speed > 0.5 ? effectivePower / speed : effectivePower) * driveRatio;
     }
 
     private normalizeAngle(angle: number): number {
