@@ -1,12 +1,18 @@
 <div class="track-builder">
   <div class="controls-panel">
-    <h3>Track Builder</h3>
-    
+    <div class="panel-header">
+      <div class="panel-header__icon">🏁</div>
+      <div>
+        <div class="panel-header__title">Track Builder</div>
+        <div class="panel-header__subtitle">Design your circuit</div>
+      </div>
+    </div>
+
     <div class="control-group">
       <h4>Track Pieces</h4>
       <div class="palette">
-        <div 
-          *ngFor="let piece of palette" 
+        <div
+          *ngFor="let piece of palette"
           class="palette-piece"
           draggable="true"
           (dragstart)="onDragStart($event, piece)"
@@ -16,64 +22,100 @@
           {{ piece.label }}
         </div>
       </div>
-    </div>
-
-    <div class="control-group">
-      <h4>Simulation Controls</h4>
+      <div class="track-stats">
+        <span>{{ segmentCount }} pieces</span>
+        <span>{{ trackLength }}</span>
+      </div>
       <div class="button-group">
-        <button (click)="startSimulation()" [disabled]="isSimulatingRunning">
-          Start Simulation
-        </button>
-        <button (click)="stopSimulation()" [disabled]="!isSimulatingRunning">
-          Stop
-        </button>
-        <button (click)="resetSimulation()">
-          Reset
-        </button>
-        <button (click)="clearTrack()" class="danger">
-          Clear Track
+        <button class="btn btn--ghost" (click)="undoLastPiece()" [disabled]="segmentCount === 0">
+          ↩ Undo Last Piece
         </button>
       </div>
     </div>
 
     <div class="control-group">
-      <h4>Display Options</h4>
+      <h4>View</h4>
+      <div class="zoom-controls">
+        <button class="btn btn--ghost zoom-btn" (click)="zoomOut()">−</button>
+        <span class="zoom-label">{{ zoomLevel }}%</span>
+        <button class="btn btn--ghost zoom-btn" (click)="zoomIn()">+</button>
+      </div>
       <div class="button-group">
-        <button (click)="toggleRacingLine()">
+        <button class="btn btn--ghost" (click)="fitTrackToView()">Fit to Track</button>
+        <button class="btn btn--ghost" (click)="resetZoom()">Reset View</button>
+      </div>
+      <p class="hint">Scroll to zoom · Alt+drag to pan</p>
+    </div>
+
+    <div class="control-group">
+      <h4>Simulation</h4>
+      <div class="info-display" *ngIf="segmentCount > 0">
+        <p><strong>Car:</strong> {{ carName }}</p>
+        <p><strong>Est. lap:</strong> {{ lapTimeEstimate }}</p>
+      </div>
+      <div class="button-group">
+        <button class="btn" (click)="startSimulation()" [disabled]="isSimulatingRunning">
+          ▶ Start Simulation
+        </button>
+        <button class="btn btn--ghost" (click)="stopSimulation()" [disabled]="!isSimulatingRunning">
+          ■ Stop
+        </button>
+        <button class="btn btn--ghost" (click)="resetSimulation()">
+          ↺ Reset
+        </button>
+        <button class="btn btn--danger" (click)="clearTrack()">
+          ✕ Clear Track
+        </button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h4>Display</h4>
+      <div class="button-group">
+        <button class="btn btn--ghost" (click)="toggleRacingLine()">
           {{ showRacingLine ? 'Hide' : 'Show' }} Racing Line
         </button>
-        <button (click)="toggleTurnDirection()">
+        <button class="btn btn--ghost" (click)="toggleOptimizedLine()">
+          {{ useOptimizedLine ? 'AI Line: On' : 'AI Line: Off' }}
+        </button>
+        <button class="btn btn--ghost" (click)="toggleTurnDirection()">
           Curve: {{ currentTurnDirection }}
         </button>
       </div>
     </div>
 
     <div class="control-group" *ngIf="isSimulatingRunning">
-      <h4>Simulation Info</h4>
+      <h4>Live Data</h4>
       <div class="info-display">
         <p><strong>Speed:</strong> {{ carSpeed }}</p>
       </div>
     </div>
 
     <div class="control-group">
-      <h4>Instructions</h4>
+      <h4>How to Use</h4>
       <div class="instructions">
         <p>1. Drag "Start" piece to canvas first</p>
-        <p>2. Add track pieces by dragging them</p>
-        <p>3. Use "Curve" button to change turn direction</p>
-        <p>4. Click "Start Simulation" to run</p>
+        <p>2. Add track pieces — no limit, zoom out to see more</p>
+        <p>3. Scroll wheel to zoom, Alt+drag to pan</p>
+        <p>4. Pick a car model in the left panel</p>
+        <p>5. Enable AI Line for optimized speed profile</p>
       </div>
     </div>
   </div>
 
   <div class="canvas-container">
-    <canvas 
-      #canvas 
-      width="1200" 
+    <canvas
+      #canvas
+      width="1200"
       height="800"
       (dragover)="onDragOver($event)"
       (dragenter)="onDragEnter($event)"
       (drop)="onDrop($event)"
+      (wheel)="onWheel($event)"
+      (mousedown)="onCanvasMouseDown($event)"
+      (mousemove)="onCanvasMouseMove($event)"
+      (mouseup)="onCanvasMouseUp()"
+      (contextmenu)="$event.preventDefault()"
     >
       Your browser does not support the canvas element.
     </canvas>

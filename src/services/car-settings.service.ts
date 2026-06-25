@@ -1,37 +1,72 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
+import { CAR_PRESETS, getPresetById } from '../models/car-presets';
 
 export interface CarSettings {
-    mass: number;
-    enginePower: number;
-    dragCoeff: number;
-    frontalArea: number;
-    tireGrip: number;
-    downforce: number;
-    finalDrive: number;
-    wheelbase: number; // meters
+  name: string;
+  presetId: string;
+  mass: number;
+  enginePower: number;
+  dragCoeff: number;
+  frontalArea: number;
+  tireGrip: number;
+  downforce: number;
+  finalDrive: number;
+  wheelbase: number;
 }
+
+export const DEFAULT_CAR_SETTINGS: CarSettings = {
+  name: 'Sport Sedan',
+  presetId: 'sport',
+  mass: 1450,
+  enginePower: 280,
+  dragCoeff: 0.28,
+  frontalArea: 2.0,
+  tireGrip: 0.95,
+  downforce: 150,
+  finalDrive: 3.6,
+  wheelbase: 2.7,
+};
 
 @Injectable({ providedIn: 'root' })
 export class CarSettingsService {
-    private settingsSource = new BehaviorSubject<CarSettings>({
-        mass: 1000,
-        enginePower: 100,
-        dragCoeff: 0.3,
-        frontalArea: 2.2,
-        tireGrip: 0.8,
-        downforce: 0,
-        finalDrive: 3.8,
-        wheelbase: 2.5 // meters
+  private settingsSource = new BehaviorSubject<CarSettings>({ ...DEFAULT_CAR_SETTINGS });
+  settings$ = this.settingsSource.asObservable();
+
+  getSettings(): CarSettings {
+    return this.settingsSource.value;
+  }
+
+  updateSettings(newSettings: Partial<CarSettings>) {
+    const current = this.settingsSource.value;
+    this.settingsSource.next({
+      ...current,
+      ...newSettings,
+      presetId: newSettings.presetId ?? (this.isCustomChange(newSettings) ? 'custom' : current.presetId),
     });
+  }
 
-    settings$ = this.settingsSource.asObservable();
+  loadPreset(presetId: string) {
+    const preset = getPresetById(presetId);
+    if (!preset) return;
+    this.settingsSource.next({
+      name: preset.name,
+      presetId: preset.id,
+      ...preset.settings,
+    });
+  }
 
-    updateSettings(newSettings: Partial<CarSettings>) {
-        console.log('Updating car settings inside Service:', newSettings);
-        this.settingsSource.next({
-            ...this.settingsSource.value,
-            ...newSettings
-        });
-    }
+  get presets() {
+    return CAR_PRESETS;
+  }
+
+  getActivePresetColor(): [string, string] {
+    const preset = getPresetById(this.settingsSource.value.presetId);
+    return preset?.color ?? ['#3b82f6', '#60a5fa'];
+  }
+
+  private isCustomChange(partial: Partial<CarSettings>): boolean {
+    const keys = Object.keys(partial).filter(k => k !== 'presetId' && k !== 'name');
+    return keys.length > 0 && partial.presetId === undefined;
+  }
 }

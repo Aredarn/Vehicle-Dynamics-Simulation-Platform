@@ -1,55 +1,138 @@
-<div class="sidenav">
-    <h2>Car Settings</h2>
-    <!--Name of the car-->
-    <p>Car Name: <input type="text" /></p>
-    <!--Stats (sliders connected to inputs) [carMass,EnginePower,Drag Coefficient,Frontal Area, Tire Grip,Downforce]-->
-    <p>
-        Car Mass(Kg):
-        <input type="range" min="400" max="2200" id="carMassRange" [(ngModel)]="car.mass" (ngModelChange)="setCarMass($event)" />
-        <input type="number" min="400" max="2200" id="carMassInput" [(ngModel)]="car.mass" (ngModelChange)="setCarMass($event)" />
-    </p>
-    <p>
-        Engine Power(Kw):
-        <input type="range" min="40" max="500" id="enginePowerRange" [(ngModel)]="car.enginePower" (ngModelChange)="setEnginePower($event)" />
-        <input type="number" min="40" max="500" id="enginePowerInput" [(ngModel)]="car.enginePower" (ngModelChange)="setEnginePower($event)" />
-    </p>
-    <p>
-        Drag Coefficient(Cd):
-        <input type="range" min="0.1" max="1" step="0.01" id="dragCoeffRange" [(ngModel)]="car.dragCoeff" (ngModelChange)="setDragCoeff($event)" />
-        <input type="number" min="0.1" max="1" step="0.01" id="dragCoeffInput" [(ngModel)]="car.dragCoeff" (ngModelChange)="setDragCoeff($event)" />
-    </p>
-    <p>
-        Frontal Area(m^2):
-        <input type="range" min="1" max="10" step="0.1" id="frontalAreaRange" [(ngModel)]="car.frontalArea" (ngModelChange)="setFrontalArea($event)" />
-        <input type="number" min="1" max="10" step="0.1" id="frontalAreaInput" [(ngModel)]="car.frontalArea" (ngModelChange)="setFrontalArea($event)" />
-    </p>
-    <p>
-        Tire Grip(μ):
-        <input type="range" min="0" max="1" step="0.01" id="tireGripRange" [(ngModel)]="car.tireGrip" (ngModelChange)="setTireGrip($event)" />
-        <input type="number" min="0" max="1" step="0.01" id="tireGripInput" [(ngModel)]="car.tireGrip" (ngModelChange)="setTireGrip($event)" />
-    </p>
-    <p>
-        Downforce(N):
-        <input type="range" min="0" max="1000" id="downforceRange" [(ngModel)]="car.downforce" (ngModelChange)="setDownforce($event)" />
-        <input type="number" min="0" max="1000" id="downforceInput" [(ngModel)]="car.downforce" (ngModelChange)="setDownforce($event)" />
-    </p>
-    <p>
-        Final drive ratio:
-        <input type="range" min="0" max="5" step="0.01" id="finalDriveRange" [(ngModel)]="car.finalDrive" (ngModelChange)="setFinalDrive($event)" />
-        <input type="number" min="0" max="5" step="0.01" id="finalDriveInput" [(ngModel)]="car.finalDrive" (ngModelChange)="setFinalDrive($event)" />
-    </p>
-    <p>
-        Wheelbase(m):
-        <input type="range" min="0" max="5" step="0.01" id="wheelbaseRange" [(ngModel)]="car.wheelbase" (ngModelChange)="setWheelbase($event)" />
-        <input type="number" min="0" max="5" step="0.01" id="wheelbaseInput" [(ngModel)]="car.wheelbase" (ngModelChange)="setWheelbase($event)" />
-    </p>
+<aside class="sidenav">
+  <div class="panel-header">
+    <div class="panel-header__icon">⚙</div>
+    <div>
+      <div class="panel-header__title">Car Settings</div>
+      <div class="panel-header__subtitle">Configure vehicle parameters</div>
+    </div>
+  </div>
 
-    <hr>
+  <div class="preset-field">
+    <label for="carPreset">Car Model</label>
+    <select id="carPreset" [ngModel]="settings.presetId" (ngModelChange)="onPresetChange($event)">
+      @for (preset of presets; track preset.id) {
+        <option [value]="preset.id">{{ preset.name }}</option>
+      }
+      <option value="custom">Custom</option>
+    </select>
+    <p class="preset-description">
+      @for (preset of presets; track preset.id) {
+        @if (preset.id === settings.presetId) {
+          {{ preset.description }}
+        }
+      }
+      @if (settings.presetId === 'custom') {
+        Manually tuned configuration
+      }
+    </p>
+  </div>
 
-    <div class="performance-metrics">
-        <h3>Performance Metrics</h3>
-        <p>0-100 Km/h: {{ getPerformance().acceleration | number:'1.3-3' }} s</p>
-        <p>Top Speed: {{ getPerformance().topSpeed | number:'1.3-3' }} Km/h</p>
+  <div class="car-name-field">
+    <label for="carName">Car Name</label>
+    <input type="text" id="carName" [(ngModel)]="settings.name" (ngModelChange)="updateSetting('name', $event)" placeholder="My Race Car" />
+  </div>
+
+  <div class="settings-list">
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="carMassRange">Car Mass</label>
+        <span class="setting-value">{{ settings.mass }} <small>kg</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="200" max="2200" id="carMassRange" [(ngModel)]="settings.mass" (ngModelChange)="updateSetting('mass', $event)" />
+        <input type="number" min="200" max="2200" class="number-input" [(ngModel)]="settings.mass" (ngModelChange)="updateSetting('mass', $event)" />
+      </div>
     </div>
 
-</div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="enginePowerRange">Engine Power</label>
+        <span class="setting-value">{{ settings.enginePower }} <small>kW</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="40" max="800" id="enginePowerRange" [(ngModel)]="settings.enginePower" (ngModelChange)="updateSetting('enginePower', $event)" />
+        <input type="number" min="40" max="800" class="number-input" [(ngModel)]="settings.enginePower" (ngModelChange)="updateSetting('enginePower', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="dragCoeffRange">Drag Coefficient</label>
+        <span class="setting-value">{{ settings.dragCoeff }} <small>Cd</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="0.1" max="1" step="0.01" id="dragCoeffRange" [(ngModel)]="settings.dragCoeff" (ngModelChange)="updateSetting('dragCoeff', $event)" />
+        <input type="number" min="0.1" max="1" step="0.01" class="number-input" [(ngModel)]="settings.dragCoeff" (ngModelChange)="updateSetting('dragCoeff', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="frontalAreaRange">Frontal Area</label>
+        <span class="setting-value">{{ settings.frontalArea }} <small>m²</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="0.8" max="3" step="0.1" id="frontalAreaRange" [(ngModel)]="settings.frontalArea" (ngModelChange)="updateSetting('frontalArea', $event)" />
+        <input type="number" min="0.8" max="3" step="0.1" class="number-input" [(ngModel)]="settings.frontalArea" (ngModelChange)="updateSetting('frontalArea', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="tireGripRange">Tire Grip</label>
+        <span class="setting-value">{{ settings.tireGrip }} <small>μ</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="0.5" max="2.5" step="0.01" id="tireGripRange" [(ngModel)]="settings.tireGrip" (ngModelChange)="updateSetting('tireGrip', $event)" />
+        <input type="number" min="0.5" max="2.5" step="0.01" class="number-input" [(ngModel)]="settings.tireGrip" (ngModelChange)="updateSetting('tireGrip', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="downforceRange">Downforce</label>
+        <span class="setting-value">{{ settings.downforce }} <small>N</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="0" max="3000" id="downforceRange" [(ngModel)]="settings.downforce" (ngModelChange)="updateSetting('downforce', $event)" />
+        <input type="number" min="0" max="3000" class="number-input" [(ngModel)]="settings.downforce" (ngModelChange)="updateSetting('downforce', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="finalDriveRange">Final Drive Ratio</label>
+        <span class="setting-value">{{ settings.finalDrive }}</span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="2" max="5" step="0.01" id="finalDriveRange" [(ngModel)]="settings.finalDrive" (ngModelChange)="updateSetting('finalDrive', $event)" />
+        <input type="number" min="2" max="5" step="0.01" class="number-input" [(ngModel)]="settings.finalDrive" (ngModelChange)="updateSetting('finalDrive', $event)" />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <label for="wheelbaseRange">Wheelbase</label>
+        <span class="setting-value">{{ settings.wheelbase }} <small>m</small></span>
+      </div>
+      <div class="setting-controls">
+        <input type="range" min="1.5" max="3.5" step="0.01" id="wheelbaseRange" [(ngModel)]="settings.wheelbase" (ngModelChange)="updateSetting('wheelbase', $event)" />
+        <input type="number" min="1.5" max="3.5" step="0.01" class="number-input" [(ngModel)]="settings.wheelbase" (ngModelChange)="updateSetting('wheelbase', $event)" />
+      </div>
+    </div>
+  </div>
+
+  <div class="performance-section">
+    <h3 class="performance-section__title">Performance Metrics</h3>
+    <div class="performance-grid">
+      <div class="stat-card">
+        <div class="stat-card__label">0–100 km/h</div>
+        <div class="stat-card__value">{{ performance.acceleration | number:'1.2-2' }}<span>s</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Top Speed</div>
+        <div class="stat-card__value">{{ performance.topSpeed | number:'1.0-0' }}<span>km/h</span></div>
+      </div>
+    </div>
+  </div>
+</aside>

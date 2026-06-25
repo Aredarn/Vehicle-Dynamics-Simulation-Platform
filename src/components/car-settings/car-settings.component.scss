@@ -1,6 +1,140 @@
-    .sidenav{
-        width: 250px;
-        background-color: #f4fdff;
-        padding: 15px;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+.sidenav {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.preset-field {
+  margin-bottom: 16px;
+
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    margin-bottom: 6px;
+  }
+
+  select {
+    width: 100%;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--color-text-primary);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    outline: none;
+    cursor: pointer;
+
+    &:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-subtle);
     }
+  }
+}
+
+.preset-description {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.car-name-field {
+  margin-bottom: 20px;
+
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    margin-bottom: 6px;
+  }
+
+  input[type='text'] {
+    width: 100%;
+  }
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+}
+
+.setting-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+
+  small {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+  }
+}
+
+.setting-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  input[type='range'] {
+    flex: 1;
+  }
+}
+
+.number-input {
+  width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.performance-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+
+  &__title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+  }
+}
+
+.performance-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}

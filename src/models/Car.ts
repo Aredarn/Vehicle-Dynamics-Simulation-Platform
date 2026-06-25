@@ -1,7 +1,6 @@
 import { CarState, RacingLinePoint } from "../interfaces/car-state";
 import { CarSettings } from "../services/car-settings.service";
 import { Segment } from "./Track";
-const PX_PER_M = 3;      // 1m = 3px
 
 export class Car {
     mass!: number;
@@ -14,16 +13,16 @@ export class Car {
     wheelbase!: number;
 
     state: CarState = {
-        s: 0,                        // meters along racing line
-        speed: 0,                    // m/s
+        s: 0,
+        speed: 0,
         heading: 0,
         position: { x: 0, y: 0 },
-        racingLineIndex: 0           // helper for interpolation
+        racingLineIndex: 0
     };
 
-
     private currentRacingLine: RacingLinePoint[] = [];
-    private maxSpeed = 80; // m/s (~288 km/h)
+    private maxSpeed = 120;
+
     constructor(settings: CarSettings) {
         this.updateSpecs(settings);
     }
@@ -35,6 +34,19 @@ export class Car {
         this.frontalArea = settings.frontalArea;
         this.tireGrip = settings.tireGrip;
         this.downforce = settings.downforce;
+        this.finalDrive = settings.finalDrive;
+        this.wheelbase = settings.wheelbase;
+        this.invalidateRacingLine();
+    }
+
+    invalidateRacingLine() {
+        this.currentRacingLine = [];
+    }
+
+    setOptimizedRacingLine(line: RacingLinePoint[]) {
+        this.currentRacingLine = line;
+        this.state.s = 0;
+        this.state.racingLineIndex = 0;
     }
 
     public resetCar() {
@@ -48,21 +60,28 @@ export class Car {
         this.currentRacingLine = [];
     }
 
-    private calculateTargetSpeed(): number {
-        const currentIdx = Math.floor(this.state.racingLineIndex);
+    getRacingLine(): RacingLinePoint[] {
+        return this.currentRacingLine;
+    }
 
-        // Not enough points, return safe speed
-        if (currentIdx >= this.currentRacingLine.length - 1 || this.currentRacingLine.length < 2) {
-            return 20; // m/s
+    private calculateTargetSpeed(): number {
+        const idx = Math.floor(this.state.racingLineIndex);
+
+        if (idx >= this.currentRacingLine.length - 1 || this.currentRacingLine.length < 2) {
+            return 20;
+        }
+
+        const current = this.currentRacingLine[idx];
+        if (current.targetSpeed !== undefined) {
+            return current.targetSpeed;
         }
 
         let minTargetSpeed = this.maxSpeed;
-
-        const lookaheadPoints = 12;  // how many points to look ahead
-        const step = 4; // step between points
+        const lookaheadPoints = 12;
+        const step = 4;
 
         for (let i = 0; i < lookaheadPoints; i++) {
-            const lookaheadIdx = currentIdx + i * step;
+            const lookaheadIdx = idx + i * step;
             if (lookaheadIdx >= this.currentRacingLine.length - 1) break;
 
             const p1 = this.currentRacingLine[lookaheadIdx];
@@ -70,32 +89,27 @@ export class Car {
 
             const headingChange = Math.abs(this.normalizeAngle(p2.heading - p1.heading));
             const distance = this.distanceBetween(p1, p2);
-
             if (distance < 0.01) continue;
 
             const curvature = headingChange / distance;
-
-            // Lateral acceleration limit
             const normalForce = this.mass * 9.81 + this.downforce;
-            const maxLatAcc = this.tireGrip * normalForce / this.mass; // a = F/m
-            const maxSpeed = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001)); // v = sqrt(a / κ)
+            const maxLatAcc = this.tireGrip * normalForce / this.mass;
+            const maxSpeed = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001));
 
             minTargetSpeed = Math.min(minTargetSpeed, maxSpeed);
         }
 
-        return Math.max(minTargetSpeed, 5); // minimum speed
+        return Math.max(minTargetSpeed, 5);
     }
 
-    private distanceBetween(p1: { x: number, y: number }, p2: { x: number, y: number }): number {
+    private distanceBetween(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
         const dx = p2.x - p1.x;
         const dy = p2.y - p1.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-
     update(dt: number, track: Segment[]) {
         if (!track.length) {
-            // Reset car if track is cleared
             this.currentRacingLine = [];
             this.state.s = 0;
             this.state.speed = 0;
@@ -105,7 +119,6 @@ export class Car {
             return;
         }
 
-        // Recompute racing line if needed
         if (this.currentRacingLine.length === 0) {
             this.currentRacingLine = this.computeRacingLine(track);
             this.state.s = 0;
@@ -113,14 +126,12 @@ export class Car {
             if (this.currentRacingLine.length === 0) return;
         }
 
-        const rho = 1.225; // air density
+        const rho = 1.225;
         const g = 9.81;
         let v = this.state.speed;
-
         const targetSpeed = this.calculateTargetSpeed();
-
-        // Throttle / brake decision
         const margin = 0.1 * targetSpeed;
+
         let throttle = 0;
         let brake = 0;
 
@@ -130,77 +141,68 @@ export class Car {
             brake = 1.0;
         } else {
             throttle = 0.3;
-            brake = 0;
         }
 
-        // Forces
         const normalForce = this.mass * g + this.downforce;
         const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
         const rollingResistance = 0.02 * normalForce;
-
         const maxTractionForce = this.tireGrip * normalForce;
 
-        // Engine force limited by traction
-        const engineForce = throttle > 0 ? Math.min(throttle * this.enginePower * 500, maxTractionForce) : 0;
+        const engineForce = throttle > 0
+            ? Math.min(this.computeEngineForce(v, throttle), maxTractionForce)
+            : 0;
 
-        // Brake force limited by traction
         const brakeForce = brake > 0 ? brake * maxTractionForce : 0;
-
-        // Net longitudinal force
         const netForce = engineForce - dragForce - rollingResistance - brakeForce;
         const acceleration = netForce / this.mass;
 
-        // Update speed
         v += acceleration * dt;
         v = Math.max(0, Math.min(v, this.maxSpeed));
         this.state.speed = v;
 
-        // Move along racing line
         this.moveAlongRacingLine(v, dt);
     }
 
+    private computeEngineForce(speed: number, throttle: number): number {
+        const powerW = this.enginePower * 1000;
+        const driveRatio = this.finalDrive / 3.8;
+        return throttle * (speed > 0.5 ? powerW / speed : powerW) * driveRatio;
+    }
 
     private normalizeAngle(angle: number): number {
-        // Keep angle between -PI and PI
         while (angle > Math.PI) angle -= 2 * Math.PI;
         while (angle < -Math.PI) angle += 2 * Math.PI;
         return angle;
     }
 
-
     moveAlongRacingLine(v: number, dt: number) {
         if (this.currentRacingLine.length < 2) return;
 
         this.state.s += v * dt;
-
         const totalLength = this.currentRacingLine[this.currentRacingLine.length - 1].s;
 
-        // Looping
         if (this.state.s > totalLength) {
             this.state.s = this.state.s % totalLength;
-            this.state.racingLineIndex = 0; // reset index for clean interpolation
+            this.state.racingLineIndex = 0;
         }
 
         const pos = this.interpolatePosition(this.state.s, this.currentRacingLine);
-
         this.state.position = { x: pos.x, y: pos.y };
         this.state.heading = pos.heading;
     }
 
-
     interpolatePosition(s: number, racingLine: RacingLinePoint[]) {
         let i = this.state.racingLineIndex;
 
-        // advance index until we find segment containing s
         while (i < racingLine.length - 1 && racingLine[i + 1].s < s) {
             i++;
         }
         this.state.racingLineIndex = i;
 
         const p1 = racingLine[i];
-        const p2 = racingLine[i + 1];
-
-        const t = (s - p1.s) / (p2.s - p1.s);
+        const p2 = racingLine[i + 1] ?? p1;
+        const ds = p2.s - p1.s;
+        const t = ds > 0 ? (s - p1.s) / ds : 0;
         const x = p1.x + t * (p2.x - p1.x);
         const y = p1.y + t * (p2.y - p1.y);
         const heading = Math.atan2(p2.y - p1.y, p2.x - p1.x);
@@ -213,7 +215,7 @@ export class Car {
 
         const racingLine: RacingLinePoint[] = [];
         let totalS = 0;
-        let prevPoint: { x: number, y: number } | null = null;
+        let prevPoint: { x: number; y: number } | null = null;
 
         for (const seg of track) {
             const segLength = this.getSegmentLength(seg);
@@ -221,11 +223,11 @@ export class Car {
 
             for (let i = 0; i <= steps; i++) {
                 const distance = (i / steps) * segLength;
-                const point = this.computeCenterPoint(seg, distance); // {x, y, heading}
+                const point = this.computeCenterPoint(seg, distance);
 
                 if (prevPoint) {
-                    const dx = (point.x - prevPoint.x) / PX_PER_M;
-                    const dy = (point.y - prevPoint.y) / PX_PER_M;
+                    const dx = point.x - prevPoint.x;
+                    const dy = point.y - prevPoint.y;
                     totalS += Math.sqrt(dx * dx + dy * dy);
                 }
 
@@ -243,8 +245,7 @@ export class Car {
         return this.smoothRacingLine(racingLine);
     }
 
-    private computeCenterPoint(seg: Segment, distance: number): { x: number, y: number, heading: number } {
-        // Always use center line - this ensures the racing line stays on track
+    private computeCenterPoint(seg: Segment, distance: number): { x: number; y: number; heading: number } {
         if (seg.type === 'straight' || seg.type === 'start') {
             const x = seg.position.x + distance * Math.cos(seg.heading);
             const y = seg.position.y + distance * Math.sin(seg.heading);
@@ -263,7 +264,6 @@ export class Car {
             const startAngle = Math.atan2(seg.position.y - cy, seg.position.x - cx);
             const arcLength = R * Math.abs(angleRad);
             const arcFraction = distance / Math.max(arcLength, 0.001);
-
             const endAngle = startAngle + turnDirection * arcFraction * Math.abs(angleRad);
 
             const x = cx + R * Math.cos(endAngle);
@@ -295,10 +295,10 @@ export class Car {
 
             for (let i = 1; i < smoothed.length - 1; i++) {
                 newPoints[i] = {
-                    x: (smoothed[i - 1].x * 0.25 + smoothed[i].x * 0.5 + smoothed[i + 1].x * 0.25),
-                    y: (smoothed[i - 1].y * 0.25 + smoothed[i].y * 0.5 + smoothed[i + 1].y * 0.25),
+                    x: smoothed[i - 1].x * 0.25 + smoothed[i].x * 0.5 + smoothed[i + 1].x * 0.25,
+                    y: smoothed[i - 1].y * 0.25 + smoothed[i].y * 0.5 + smoothed[i + 1].y * 0.25,
                     heading: smoothed[i].heading,
-                    s: smoothed[i].s // ✅ keep distance unchanged
+                    s: smoothed[i].s
                 };
             }
 
@@ -307,5 +307,4 @@ export class Car {
 
         return smoothed;
     }
-
 }

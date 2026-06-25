@@ -1,6 +1,56 @@
-.horizontal-layout
-{
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  height: 56px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+
+  &__brand {
     display: flex;
-    flex-direction: row;
-    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--color-accent) 0%, #6366f1 100%);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  &__subtitle {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    line-height: 1.2;
+  }
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 }
