@@ -14,10 +14,10 @@ This project is for myself to learn a bit more physics and get more experience. 
 - Final drive ratio (NOT YET WORKING)
 - Wheelbase (in meter NOT YET WORKING)
 
-<img width="900" height="410" alt="Képernyőkép 2025-10-02 151833" src="https://github.com/user-attachments/assets/24474e58-cd6e-4ce5-b77f-e5ddaeb1dd43" />
+<img width="1919" height="1028" alt="Képernyőkép 2026-06-30 142659" src="https://github.com/user-attachments/assets/f71a047a-a172-433f-b11a-5ba0bc3d0ecd" />
+.com/user-attachments/assets/24474e58-cd6e-4ce5-b77f-e5ddaeb1dd43" />
 
-
-## How to use (Inside pwoershell):
+## How to use (Inside powershell):
 1. Download the code using Git
 ```console
 git clone https://github.com/Aredarn/Vehicle-Dynamics-Simulation-Platform.git
