@@ -3,6 +3,7 @@ import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome } from '../models/CarAgent';
 import { Segment } from '../models/Track';
+import { buildTrackPath, getTrackLength } from '../utils/track-utils';
 
 export interface AILearningConfig {
   populationSize: number;
@@ -17,6 +18,13 @@ export interface AIGenerationStats {
   aliveCount: number;
   averageFitness: number;
   active: boolean;
+}
+
+export function calculateSimulationSteps(trackLength: number, averageSpeed: number, dt: number, minSteps = 900): number {
+  const safeTrackLength = Math.max(0, trackLength);
+  const safeAverageSpeed = Math.max(1, averageSpeed);
+  const targetDurationSeconds = Math.max(20, safeTrackLength / safeAverageSpeed);
+  return Math.max(minSteps, Math.ceil(targetDurationSeconds / dt));
 }
 
 @Injectable({ providedIn: 'root' })
@@ -58,6 +66,8 @@ export class AIDrivingService {
     let bestGenome: AgentGenome | null = null;
 
     let bestAgentSnapshot: { genome: AgentGenome; trajectory: any[]; state: any } | null = null;
+    const trackLength = getTrackLength(buildTrackPath(segments, 2));
+    const simulationSteps = calculateSimulationSteps(trackLength, 20, 1 / 30);
 
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
@@ -66,7 +76,7 @@ export class AIDrivingService {
       agents.forEach(agent => agent.reset(segments));
 
       this.populationSubject.next(agents);
-      await this.simulateAgents(agents, 900, 1 / 30);
+      await this.simulateAgents(agents, simulationSteps, 1 / 30);
 
       agents.forEach(agent => {
         const genome = agent.genome;

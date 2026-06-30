@@ -39,9 +39,30 @@ export class CarSettingsService {
 
   updateSettings(newSettings: Partial<CarSettings>) {
     const current = this.settingsSource.value;
+    const normalizedSettings: Partial<CarSettings> = {};
+
+    for (const [key, value] of Object.entries(newSettings) as Array<[keyof CarSettings, CarSettings[keyof CarSettings] | string | undefined]>) {
+      if (key === 'presetId' || key === 'name') {
+        (normalizedSettings as Record<string, unknown>)[key] = value;
+        continue;
+      }
+
+      if (typeof value === 'string' && value.trim() !== '') {
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) {
+          (normalizedSettings as Record<string, unknown>)[key] = numericValue;
+        }
+        continue;
+      }
+
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        (normalizedSettings as Record<string, unknown>)[key] = value;
+      }
+    }
+
     this.settingsSource.next({
       ...current,
-      ...newSettings,
+      ...normalizedSettings,
       presetId: newSettings.presetId ?? (this.isCustomChange(newSettings) ? 'custom' : current.presetId),
     });
   }

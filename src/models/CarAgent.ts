@@ -2,7 +2,7 @@ import { RacingLinePoint } from '../interfaces/car-state';
 import { Segment } from './Track';
 import { normalizeAngle, distance, isPointOnTrack, buildTrackPath, closestPointOnPath, rayDistanceToTrackEdge } from '../utils/track-utils';
 import { CarSettings } from '../services/car-settings.service';
-import { calculatePerformance, maxLongitudinalForce, maxBrakingDeceleration } from '../utils/car-physics';
+import { calculateLongitudinalAcceleration, calculatePerformance } from '../utils/car-physics';
 
 export interface AgentGenome {
   weights: number[];
@@ -75,9 +75,7 @@ export class CarAgent {
     const throttle = this.clamp(this.dot(inputs, this.genome.weights.slice(8, 16)), 0, 1);
     const brake = this.clamp(this.dot(inputs, this.genome.weights.slice(16, 24)), 0, 1);
 
-    const tractionForce = maxLongitudinalForce(this.settings, this.state.speed, throttle);
-    const brakingForce = brake > 0 ? maxBrakingDeceleration(this.settings) * brake : 0;
-    const acceleration = (tractionForce - brakingForce) / this.settings.mass;
+    const acceleration = calculateLongitudinalAcceleration(this.settings, this.state.speed, throttle, brake);
 
     this.state.heading += steer * dt * 2.7;
     this.state.speed = this.clamp(this.state.speed + acceleration * dt, 0, this.maxSpeed);

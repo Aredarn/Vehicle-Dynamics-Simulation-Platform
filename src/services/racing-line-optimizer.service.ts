@@ -20,11 +20,12 @@ export class RacingLineOptimizerService {
       return { points: centerline, estimatedLapTime: 0 };
     }
 
-    const curvatures = this.computeCurvatures(centerline);
+    const racingLine = this.buildRacingLine(centerline);
+    const curvatures = this.computeCurvatures(racingLine);
     const maxLatAcc = maxLateralAcceleration(settings);
     const maxBrakeDecel = maxBrakingDeceleration(settings);
 
-    const speedLimits = centerline.map((_, i) => {
+    const speedLimits = racingLine.map((_, i) => {
       const kappa = curvatures[i];
       if (kappa < 0.0001) return 120;
       return Math.sqrt(maxLatAcc / kappa);
@@ -32,8 +33,8 @@ export class RacingLineOptimizerService {
 
     const targetSpeeds = [...speedLimits];
 
-    for (let i = 1; i < centerline.length; i++) {
-      const ds = centerline[i].s - centerline[i - 1].s;
+    for (let i = 1; i < racingLine.length; i++) {
+      const ds = racingLine[i].s - racingLine[i - 1].s;
       if (ds <= 0) continue;
       const vPrev = targetSpeeds[i - 1];
       const maxAccel = Math.max(0, maxLongitudinalForce(settings, Math.max(vPrev, 1), 1) / settings.mass);
@@ -41,15 +42,15 @@ export class RacingLineOptimizerService {
       targetSpeeds[i] = Math.min(targetSpeeds[i], vFromAccel);
     }
 
-    for (let i = centerline.length - 2; i >= 0; i--) {
-      const ds = centerline[i + 1].s - centerline[i].s;
+    for (let i = racingLine.length - 2; i >= 0; i--) {
+      const ds = racingLine[i + 1].s - racingLine[i].s;
       if (ds <= 0) continue;
       const vNext = targetSpeeds[i + 1];
       const vFromBrake = Math.sqrt(vNext * vNext + 2 * maxBrakeDecel * ds);
       targetSpeeds[i] = Math.min(targetSpeeds[i], vFromBrake);
     }
 
-    const points = centerline.map((p, i) => ({
+    const points = racingLine.map((p, i) => ({
       ...p,
       targetSpeed: Math.max(5, targetSpeeds[i]),
     }));
@@ -62,6 +63,42 @@ export class RacingLineOptimizerService {
     }
 
     return { points, estimatedLapTime: lapTime };
+  }
+
+  private buildRacingLine(centerline: RacingLinePoint[]): RacingLinePoint[] {
+    if (centerline.length < 3) return centerline;
+
+    const points = centerline.map(point => ({ ...point }));
+    const curvatures = this.computeCurvatures(centerline);
+
+    for (let i = 1; i < points.length - 1; i++) {
+      const curvature = curvatures[i];
+      if (curvature < 0.01) continue;
+
+      const start = Math.max(1, i - 6);
+      const end = Math.min(points.length - 2, i + 6);
+      const span = Math.max(1, end - start + 1);
+      const progress = (i - start) / (span - 1);
+      const weight = 1 - 2 * Math.abs(progress - 0.5);
+      const turnSign = Math.sign(this.normalizeAngle(centerline[i + 1].heading - centerline[i - 1].heading)) || 1;
+      const magnitude = Math.min(3.5, Math.max(1.2, curvature * 10));
+      const offset = -turnSign * magnitude * Math.max(0, weight);
+      const normal = { x: -Math.sin(points[i].heading), y: Math.cos(points[i].heading) };
+
+      points[i] = {
+        ...points[i],
+        x: points[i].x + normal.x * offset,
+        y: points[i].y + normal.y * offset,
+      };
+    }
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const current = points[i];
+      current.s = prev.s + this.distance(prev, current);
+    }
+
+    return points;
   }
 
   private computeCurvatures(points: RacingLinePoint[]): number[] {

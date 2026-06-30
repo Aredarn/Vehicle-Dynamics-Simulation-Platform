@@ -1,6 +1,6 @@
 import { CarState, RacingLinePoint } from "../interfaces/car-state";
 import { CarSettings } from "../services/car-settings.service";
-import { calculatePerformance } from "../utils/car-physics";
+import { calculateCorneringSpeedLimit, calculateLongitudinalAcceleration, calculatePerformance } from "../utils/car-physics";
 import { Segment } from "./Track";
 
 export class Car {
@@ -95,10 +95,7 @@ export class Car {
             if (distance < 0.01) continue;
 
             const curvature = headingChange / distance;
-            const normalForce = this.mass * 9.81 + this.downforce;
-            const maxLatAcc = this.tireGrip * normalForce / this.mass;
-            const maxSpeed = Math.sqrt(maxLatAcc / Math.max(curvature, 0.0001));
-
+            const maxSpeed = calculateCorneringSpeedLimit(this.getSettingsSnapshot(), curvature, this.state.speed, Math.min(0.7, this.state.speed / this.maxSpeed));
             minTargetSpeed = Math.min(minTargetSpeed, maxSpeed);
         }
 
@@ -129,8 +126,6 @@ export class Car {
             if (this.currentRacingLine.length === 0) return;
         }
 
-        const rho = 1.225;
-        const g = 9.81;
         let v = this.state.speed;
         const targetSpeed = this.calculateTargetSpeed();
         const margin = 0.1 * targetSpeed;
@@ -146,22 +141,7 @@ export class Car {
             throttle = 0.3;
         }
 
-        const normalForce = this.mass * g + this.downforce;
-        const dragForce = 0.5 * rho * this.dragCoeff * this.frontalArea * v * v;
-        const rollingResistance = 0.02 * normalForce;
-        const maxTractionForce = this.tireGrip * normalForce;
-
-        const powerW = this.enginePower * 1000;
-        const efficiency = 0.9;
-        const driveRatio = this.finalDrive / 3.8;
-        const effectivePower = powerW * efficiency;
-        const engineForce = throttle > 0
-            ? Math.min(this.computeEngineForce(v, throttle, effectivePower, driveRatio), maxTractionForce)
-            : 0;
-
-        const brakeForce = brake > 0 ? Math.min(brake * maxTractionForce, maxTractionForce) : 0;
-        const netForce = engineForce - dragForce - rollingResistance - brakeForce;
-        const acceleration = netForce / this.mass;
+        const acceleration = calculateLongitudinalAcceleration(this.getSettingsSnapshot(), v, throttle, brake);
 
         v += acceleration * dt;
         v = Math.max(0, Math.min(v, this.maxSpeed));
@@ -170,8 +150,19 @@ export class Car {
         this.moveAlongRacingLine(v, dt);
     }
 
-    private computeEngineForce(speed: number, throttle: number, effectivePower: number, driveRatio: number): number {
-        return throttle * (speed > 0.5 ? effectivePower / speed : effectivePower) * driveRatio;
+    private getSettingsSnapshot(): CarSettings {
+        return {
+            name: 'Preview Car',
+            presetId: 'custom',
+            mass: this.mass,
+            enginePower: this.enginePower,
+            dragCoeff: this.dragCoeff,
+            frontalArea: this.frontalArea,
+            tireGrip: this.tireGrip,
+            downforce: this.downforce,
+            finalDrive: this.finalDrive,
+            wheelbase: this.wheelbase,
+        };
     }
 
     private normalizeAngle(angle: number): number {
