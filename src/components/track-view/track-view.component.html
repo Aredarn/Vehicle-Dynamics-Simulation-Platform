@@ -19,16 +19,49 @@
           (dragend)="onDragEnd()"
           [title]="piece.label"
         >
-          {{ piece.label }}
+          <span class="palette-piece__icon">{{ piece.icon }}</span>
+          <span class="palette-piece__body">
+            <span class="palette-piece__title">{{ piece.label }}</span>
+            <span class="palette-piece__meta">{{ piece.meta }}</span>
+          </span>
         </div>
       </div>
       <div class="track-stats">
         <span>{{ segmentCount }} pieces</span>
         <span>{{ trackLength }}</span>
       </div>
-      <div class="button-group">
+      <div class="turn-direction-switch">
+        <span>Next corner</span>
+        <div class="segmented-control">
+          <button type="button" class="segmented-control__btn" [class.active]="!previewTurnRight" (click)="setTurnDirection(false)">
+            Left
+          </button>
+          <button type="button" class="segmented-control__btn" [class.active]="previewTurnRight" (click)="setTurnDirection(true)">
+            Right
+          </button>
+        </div>
+      </div>
+      <div class="button-group compact">
+        <button class="btn btn--ghost" (click)="exportTrack()">
+          ⤓ Export Track
+        </button>
         <button class="btn btn--ghost" (click)="undoLastPiece()" [disabled]="segmentCount === 0">
-          ↩ Undo Last Piece
+          ↩ Undo
+        </button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h4>F1 Presets</h4>
+      <div class="preset-grid">
+        <button
+          *ngFor="let preset of trackPresets"
+          class="preset-btn"
+          type="button"
+          (click)="loadTrackPreset(preset.key)"
+        >
+          <strong>{{ preset.label }}</strong>
+          <span>{{ preset.description }}</span>
         </button>
       </div>
     </div>
@@ -110,9 +143,6 @@
         </button>
         <button class="btn btn--ghost" (click)="toggleOptimizedLine()">
           {{ useOptimizedLine ? 'AI Line: On' : 'AI Line: Off' }}
-        </button>
-        <button class="btn btn--ghost" (click)="toggleTurnDirection()">
-          Curve: {{ currentTurnDirection }}
         </button>
       </div>
     </div>

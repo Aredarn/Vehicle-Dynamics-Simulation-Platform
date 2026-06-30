@@ -56,13 +56,21 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   ) {}
 
   palette = [
-    { label: 'Start', type: 'start' as PieceType, length: 50 },
-    { label: 'Straight 10', type: 'straight' as PieceType, length: 10 },
-    { label: 'Straight 50', type: 'straight' as PieceType, length: 50 },
-    { label: 'Straight 100', type: 'straight' as PieceType, length: 100 },
-    { label: 'Curve 45°', type: 'curve45' as PieceType, radius: 60, angle: 45 },
-    { label: 'Curve 90°', type: 'curve90' as PieceType, radius: 60, angle: 90 },
-    { label: 'Curve 180°', type: 'curve180' as PieceType, radius: 60, angle: 180 },
+    { label: 'Start', type: 'start' as PieceType, length: 50, icon: '🏁', meta: 'Launch zone' },
+    { label: 'Short Straight', type: 'straight' as PieceType, length: 20, icon: '⬛', meta: '20 m' },
+    { label: 'Medium Straight', type: 'straight' as PieceType, length: 50, icon: '⬛', meta: '50 m' },
+    { label: 'Long Straight', type: 'straight' as PieceType, length: 100, icon: '⬛', meta: '100 m' },
+    { label: 'Fast Sweep', type: 'curve30' as PieceType, radius: 80, angle: 30, icon: '↺', meta: '30°' },
+    { label: 'Medium Corner', type: 'curve45' as PieceType, radius: 70, angle: 45, icon: '↺', meta: '45°' },
+    { label: 'Technical Corner', type: 'curve60' as PieceType, radius: 65, angle: 60, icon: '↻', meta: '60°' },
+    { label: 'Hairpin', type: 'curve90' as PieceType, radius: 55, angle: 90, icon: '↻', meta: '90°' },
+    { label: 'Chicane', type: 'curve120' as PieceType, radius: 60, angle: 120, icon: '⤴', meta: '120°' },
+  ];
+
+  trackPresets = [
+    { key: 'monaco', label: 'Monaco GP', description: 'Street circuit with tight braking zones and slow corners' },
+    { key: 'silverstone', label: 'Silverstone GP', description: 'High-speed mix of straights and fast flowing corners' },
+    { key: 'monza', label: 'Monza GP', description: 'Long straights and heavy braking for a classic F1 layout' },
   ];
 
   private lastTime = 0;
@@ -237,7 +245,140 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.isPanning = false;
   }
 
-  // ---------- Drag & Drop ----------
+  // ---------- Presets ----------
+  loadTrackPreset(presetKey: string) {
+    const segments = this.createPresetTrack(presetKey);
+    if (!segments.length) return;
+
+    this.segments = segments;
+    this.previewTurnRight = false;
+    this.isSimulating = false;
+    this.car.resetCar();
+    this.onTrackChanged();
+    this.fitTrackToView();
+  }
+
+  private createPresetTrack(presetKey: string): Segment[] {
+    const definitions: Array<{ type: PieceType; length?: number; radius?: number; angle?: number; turnRight?: boolean }> = [];
+
+    switch (presetKey) {
+      case 'monaco':
+        definitions.push(
+          { type: 'straight', length: 35 },
+          { type: 'curve45', angle: 45, turnRight: true },
+          { type: 'straight', length: 18 },
+          { type: 'curve90', angle: 90, turnRight: false },
+          { type: 'straight', length: 12 },
+          { type: 'curve60', angle: 60, turnRight: true },
+          { type: 'straight', length: 14 },
+          { type: 'curve120', angle: 120, turnRight: false },
+          { type: 'straight', length: 20 },
+          { type: 'curve60', angle: 60, turnRight: true },
+          { type: 'straight', length: 16 },
+          { type: 'curve90', angle: 90, turnRight: false },
+          { type: 'straight', length: 15 },
+          { type: 'curve45', angle: 45, turnRight: true },
+          { type: 'straight', length: 22 },
+        );
+        break;
+      case 'silverstone':
+        definitions.push(
+          { type: 'straight', length: 70 },
+          { type: 'curve60', angle: 60, turnRight: false },
+          { type: 'straight', length: 52 },
+          { type: 'curve90', angle: 90, turnRight: true },
+          { type: 'straight', length: 60 },
+          { type: 'curve45', angle: 45, turnRight: false },
+          { type: 'straight', length: 40 },
+          { type: 'curve60', angle: 60, turnRight: true },
+          { type: 'straight', length: 58 },
+          { type: 'curve90', angle: 90, turnRight: false },
+          { type: 'straight', length: 50 },
+          { type: 'curve30', angle: 30, turnRight: true },
+          { type: 'straight', length: 28 },
+          { type: 'curve120', angle: 120, turnRight: false },
+          { type: 'straight', length: 38 },
+          { type: 'curve60', angle: 60, turnRight: true },
+          { type: 'straight', length: 34 },
+        );
+        break;
+      case 'monza':
+        definitions.push(
+          { type: 'straight', length: 95 },
+          { type: 'curve45', angle: 45, turnRight: true },
+          { type: 'straight', length: 70 },
+          { type: 'curve90', angle: 90, turnRight: false },
+          { type: 'straight', length: 82 },
+          { type: 'curve60', angle: 60, turnRight: true },
+          { type: 'straight', length: 54 },
+          { type: 'curve45', angle: 45, turnRight: false },
+          { type: 'straight', length: 44 },
+          { type: 'curve120', angle: 120, turnRight: true },
+          { type: 'straight', length: 78 },
+          { type: 'curve90', angle: 90, turnRight: false },
+          { type: 'straight', length: 62 },
+          { type: 'curve30', angle: 30, turnRight: true },
+          { type: 'straight', length: 58 },
+        );
+        break;
+      default:
+        return [];
+    }
+
+    const segments: Segment[] = [{
+      id: crypto.randomUUID(),
+      type: 'start',
+      position: { x: 0, y: 0 },
+      heading: 0,
+      length: 50 / PX_PER_M,
+    }];
+
+    let last = segments[0];
+    for (const definition of definitions) {
+      const next = this.buildPresetSegment(last, definition);
+      segments.push(next);
+      last = next;
+    }
+
+    return segments;
+  }
+
+  private buildPresetSegment(last: Segment, piece: { type: PieceType; length?: number; radius?: number; angle?: number; turnRight?: boolean }): Segment {
+    const lastEnd = this.computeEndOf(last);
+    const baseHeading = lastEnd.heading;
+
+    if (piece.type === 'straight') {
+      return {
+        id: crypto.randomUUID(),
+        type: 'straight',
+        length: (piece.length ?? 40) / PX_PER_M,
+        position: { x: lastEnd.x, y: lastEnd.y },
+        heading: baseHeading,
+      };
+    }
+
+    if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(piece.type)) {
+      const angleDeg = piece.angle ?? 45;
+      const signedDeg = piece.turnRight ? -Math.abs(angleDeg) : Math.abs(angleDeg);
+      return {
+        id: crypto.randomUUID(),
+        type: piece.type,
+        radius: (piece.radius ?? 60) / PX_PER_M,
+        angle: signedDeg,
+        position: { x: lastEnd.x, y: lastEnd.y },
+        heading: baseHeading,
+      };
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      type: 'straight',
+      length: 40 / PX_PER_M,
+      position: { x: lastEnd.x, y: lastEnd.y },
+      heading: baseHeading,
+    };
+  }
+
   onDragStart(event: DragEvent, piece: any) {
     this.dragPreview = { ...piece };
     event.dataTransfer?.setData('text/plain', piece.type);
@@ -306,7 +447,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       };
     }
 
-    if (['curve45', 'curve90', 'curve180'].includes(piece.type)) {
+    if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(piece.type)) {
       const angleDeg = piece.angle ?? Number(piece.type.replace('curve', '')) ?? 90;
       const signedDeg = turnRight ? -Math.abs(angleDeg) : Math.abs(angleDeg);
       return {
@@ -338,7 +479,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       return { x: x0 + L * Math.cos(θ), y: y0 + L * Math.sin(θ), heading: θ };
     }
 
-    if (['curve45', 'curve90', 'curve180'].includes(seg.type)) {
+    if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(seg.type)) {
       const R = seg.radius ?? 6;
       const angleRad = (seg.angle ?? 90) * Math.PI / 180;
       const turnDirection = Math.sign(seg.angle ?? 90);
@@ -498,7 +639,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private drawSegment(seg: Segment, ghost = false) {
     if (seg.type === 'start') return this.drawStart(seg, ghost);
     if (seg.type === 'straight') return this.drawStraight(seg, ghost);
-    if (['curve45', 'curve90', 'curve180'].includes(seg.type)) return this.drawCurve(seg, ghost);
+    if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(seg.type)) return this.drawCurve(seg, ghost);
   }
 
   private drawStart(seg: Segment, ghost = false) {
@@ -510,8 +651,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.rotate(seg.heading);
     ctx.globalAlpha = ghost ? 0.4 : 1;
 
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, -roadWidth / 2, startLength, roadWidth);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(0, -roadWidth / 2, startLength, 2);
+    ctx.fillRect(0, roadWidth / 2 - 2, startLength, 2);
 
     const checkSize = 8;
     for (let i = 0; i < Math.ceil(roadWidth / (checkSize * 2)); i++) {
@@ -523,12 +667,12 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#fffbeb';
     ctx.font = `bold ${14 / this.camera.scale}px Inter, Arial`;
     ctx.textAlign = 'center';
     ctx.fillText('START', startLength / 2, 0);
 
-    ctx.strokeStyle = '#ff0000';
+    ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 3 / this.camera.scale;
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -546,19 +690,33 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.rotate(seg.heading);
     ctx.globalAlpha = ghost ? 0.4 : 1;
 
-    ctx.fillStyle = ghost ? '#4b5563' : '#374151';
+    const roadGradient = ctx.createLinearGradient(0, -roadWidth / 2, L, roadWidth / 2);
+    roadGradient.addColorStop(0, ghost ? '#4b5563' : '#1f2937');
+    roadGradient.addColorStop(1, ghost ? '#6b7280' : '#374151');
+    ctx.fillStyle = roadGradient;
     ctx.fillRect(0, -roadWidth / 2, L, roadWidth);
 
-    ctx.strokeStyle = ghost ? '#9ca3af' : '#ffffff';
+    ctx.strokeStyle = ghost ? '#9ca3af' : '#f8fafc';
     ctx.lineWidth = 2 / this.camera.scale;
     ctx.strokeRect(0, -roadWidth / 2, L, roadWidth);
 
-    ctx.setLineDash([15, 10]);
+    ctx.strokeStyle = ghost ? '#cbd5e1' : '#fef3c7';
+    ctx.lineWidth = 1.2 / this.camera.scale;
+    ctx.setLineDash([16, 10]);
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(L, 0);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    ctx.strokeStyle = ghost ? '#94a3b8' : '#f8fafc';
+    ctx.lineWidth = 1 / this.camera.scale;
+    ctx.beginPath();
+    ctx.moveTo(0, -roadWidth / 2 + 3);
+    ctx.lineTo(L, -roadWidth / 2 + 3);
+    ctx.moveTo(0, roadWidth / 2 - 3);
+    ctx.lineTo(L, roadWidth / 2 - 3);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -576,18 +734,29 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     ctx.save();
     ctx.globalAlpha = ghost ? 0.4 : 1;
-    ctx.fillStyle = ghost ? '#4b5563' : '#374151';
+    const roadGradient = ctx.createRadialGradient(cx, cy, R - roadWidth / 2, cx, cy, R + roadWidth / 2);
+    roadGradient.addColorStop(0, ghost ? '#4b5563' : '#374151');
+    roadGradient.addColorStop(1, ghost ? '#6b7280' : '#111827');
+    ctx.fillStyle = roadGradient;
     ctx.beginPath();
     ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
     ctx.arc(cx, cy, R - roadWidth / 2, endAngle, startAngle, angleRad >= 0);
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = ghost ? '#9ca3af' : '#ffffff';
+    ctx.strokeStyle = ghost ? '#cbd5e1' : '#f8fafc';
     ctx.lineWidth = 2 / this.camera.scale;
     ctx.beginPath();
     ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
     ctx.stroke();
+
+    ctx.strokeStyle = ghost ? '#94a3b8' : '#fef3c7';
+    ctx.lineWidth = 1 / this.camera.scale;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, startAngle, endAngle, angleRad < 0);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
@@ -705,9 +874,59 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.drawAll();
   }
 
-  toggleTurnDirection() {
-    this.previewTurnRight = !this.previewTurnRight;
+  setTurnDirection(turnRight: boolean) {
+    this.previewTurnRight = turnRight;
     this.drawAll();
+  }
+
+  toggleTurnDirection() {
+    this.setTurnDirection(!this.previewTurnRight);
+  }
+
+  exportTrack() {
+    if (this.segments.length <= 1) {
+      alert('Build a track first so it can be exported.');
+      return;
+    }
+
+    const presetDefinition = this.buildExportDefinition();
+    const exportText = JSON.stringify(presetDefinition, null, 2);
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = exportText;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      alert('Track preset copied to clipboard. Paste it into a preset definition.');
+    } catch {
+      alert(exportText);
+    }
+  }
+
+  private buildExportDefinition(): Array<{ type: PieceType; length?: number; radius?: number; angle?: number; turnRight?: boolean }> {
+    return this.segments
+      .slice(1)
+      .map(seg => {
+        if (seg.type === 'straight') {
+          return { type: 'straight', length: Math.round((seg.length ?? 0) * PX_PER_M) };
+        }
+
+        if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(seg.type)) {
+          return {
+            type: seg.type as PieceType,
+            angle: Math.abs(seg.angle ?? 0),
+            turnRight: (seg.angle ?? 0) < 0,
+            radius: Math.round((seg.radius ?? 0) * PX_PER_M),
+          };
+        }
+
+        return { type: 'straight', length: 20 };
+      });
   }
 
   private animate(timestamp: number) {

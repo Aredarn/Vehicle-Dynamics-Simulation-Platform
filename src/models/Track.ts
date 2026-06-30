@@ -1,4 +1,4 @@
-export type PieceType = 'start' | 'straight' | 'curve45' | 'curve90' | 'curve180';
+export type PieceType = 'start' | 'straight' | 'curve30' | 'curve45' | 'curve60' | 'curve90' | 'curve120' | 'curve180';
 
 export interface Track {
     name: string;
