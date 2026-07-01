@@ -81,28 +81,6 @@
     </div>
 
     <div class="control-group">
-      <h4>Simulation</h4>
-      <div class="info-display" *ngIf="segmentCount > 0">
-        <p><strong>Car:</strong> {{ carName }}</p>
-        <p><strong>Est. lap:</strong> {{ lapTimeEstimate }}</p>
-      </div>
-      <div class="button-group">
-        <button class="btn" (click)="startSimulation()" [disabled]="isSimulatingRunning">
-          ▶ Start Simulation
-        </button>
-        <button class="btn btn--ghost" (click)="stopSimulation()" [disabled]="!isSimulatingRunning">
-          ■ Stop
-        </button>
-        <button class="btn btn--ghost" (click)="resetSimulation()">
-          ↺ Reset
-        </button>
-        <button class="btn btn--danger" (click)="clearTrack()">
-          ✕ Clear Track
-        </button>
-      </div>
-    </div>
-
-    <div class="control-group">
       <h4>AI Training</h4>
       <div class="settings-grid">
         <label>
@@ -144,13 +122,6 @@
         <button class="btn btn--ghost" (click)="toggleOptimizedLine()">
           {{ useOptimizedLine ? 'AI Line: On' : 'AI Line: Off' }}
         </button>
-      </div>
-    </div>
-
-    <div class="control-group" *ngIf="isSimulatingRunning">
-      <h4>Live Data</h4>
-      <div class="info-display">
-        <p><strong>Speed:</strong> {{ carSpeed }}</p>
       </div>
     </div>
 

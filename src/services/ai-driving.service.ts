@@ -20,6 +20,29 @@ export interface AIGenerationStats {
   active: boolean;
 }
 
+export interface AITrainingHistoryEntry {
+  runId: string;
+  generation: number;
+  bestFitness: number;
+  bestLapTime: number;
+  aliveCount: number;
+  averageFitness: number;
+  trajectory: Array<{ x: number; y: number; heading: number; s: number }>;
+}
+
+export interface AITrainingRun {
+  id: string;
+  label: string;
+  startedAt: number;
+  completedAt: number | null;
+  generationCount: number;
+  bestFitness: number;
+  bestLapTime: number;
+  aliveCount: number;
+  averageFitness: number;
+  entries: AITrainingHistoryEntry[];
+}
+
 export function calculateSimulationSteps(trackLength: number, averageSpeed: number, dt: number, minSteps = 900): number {
   const safeTrackLength = Math.max(0, trackLength);
   const safeAverageSpeed = Math.max(1, averageSpeed);
@@ -41,6 +64,10 @@ export class AIDrivingService {
   private populationSubject = new BehaviorSubject<CarAgent[]>([]);
   stats$: Observable<AIGenerationStats> = this.statsSubject.asObservable();
   agents$: Observable<CarAgent[]> = this.populationSubject.asObservable();
+  private runsSubject = new BehaviorSubject<AITrainingRun[]>([]);
+  runs$: Observable<AITrainingRun[]> = this.runsSubject.asObservable();
+  private selectedHistoryEntrySubject = new BehaviorSubject<AITrainingHistoryEntry | null>(null);
+  selectedHistoryEntry$: Observable<AITrainingHistoryEntry | null> = this.selectedHistoryEntrySubject.asObservable();
   private stopRequested = false;
 
   stopTraining() {
@@ -51,6 +78,10 @@ export class AIDrivingService {
     });
   }
 
+  clearHistory() {
+    this.selectedHistoryEntrySubject.next(null);
+  }
+
   async train(
     settings: CarSettings,
     segments: Segment[],
@@ -58,12 +89,30 @@ export class AIDrivingService {
   ): Promise<{ bestAgents: CarAgent[]; bestGenome: AgentGenome | null }> {
     this.stopRequested = false;
 
+    this.clearHistory();
+
     const populationSize = Math.max(4, config.populationSize);
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
 
     let population: AgentGenome[] = Array.from({ length: populationSize }, () => this.createGenome());
     let bestGenome: AgentGenome | null = null;
+
+    const existingRuns = this.runsSubject.value;
+    const runLabel = `Run ${existingRuns.length + 1}`;
+    let currentRun: AITrainingRun = {
+      id: crypto.randomUUID(),
+      label: runLabel,
+      startedAt: Date.now(),
+      completedAt: null,
+      generationCount: 0,
+      bestFitness: 0,
+      bestLapTime: 0,
+      aliveCount: 0,
+      averageFitness: 0,
+      entries: []
+    };
+    this.runsSubject.next([...existingRuns, currentRun]);
 
     let bestAgentSnapshot: { genome: AgentGenome; trajectory: any[]; state: any } | null = null;
     const trackLength = getTrackLength(buildTrackPath(segments, 2));
@@ -103,15 +152,40 @@ export class AIDrivingService {
       const averageFitness = population.reduce((sum, g) => sum + g.fitness, 0) / population.length;
       const aliveCount = population.filter(g => g.alive).length;
       const bestLapTime = bestGenome.lapTime === Infinity ? 0 : bestGenome.lapTime;
+      const roundedBestFitness = Math.round(bestGenome.fitness * 100) / 100;
+      const roundedAverageFitness = Math.round(averageFitness * 100) / 100;
+      const roundedBestLapTime = Math.round(bestLapTime * 100) / 100;
 
       this.statsSubject.next({
         generation,
-        bestFitness: Math.round(bestGenome.fitness * 100) / 100,
-        bestLapTime: Math.round(bestLapTime * 100) / 100,
+        bestFitness: roundedBestFitness,
+        bestLapTime: roundedBestLapTime,
         aliveCount,
-        averageFitness: Math.round(averageFitness * 100) / 100,
+        averageFitness: roundedAverageFitness,
         active: true,
       });
+
+      const entry: AITrainingHistoryEntry = {
+        runId: currentRun.id,
+        generation,
+        bestFitness: roundedBestFitness,
+        bestLapTime: roundedBestLapTime,
+        aliveCount,
+        averageFitness: roundedAverageFitness,
+        trajectory: bestAgentSnapshot?.trajectory ?? [],
+      };
+
+      currentRun = {
+        ...currentRun,
+        generationCount: currentRun.generationCount + 1,
+        bestFitness: roundedBestFitness,
+        bestLapTime: roundedBestLapTime,
+        aliveCount,
+        averageFitness: roundedAverageFitness,
+        entries: [...currentRun.entries, entry],
+      };
+
+      this.updateRun(currentRun);
 
       if (generation === generations || this.stopRequested) break;
 
@@ -132,12 +206,28 @@ export class AIDrivingService {
       if (bestAgents.length) bestAgents[0].reset(segments);
     }
 
+    if (bestAgentSnapshot) {
+      const lastEntry = currentRun.entries[currentRun.entries.length - 1];
+      if (lastEntry) {
+        this.selectHistoryEntry(lastEntry);
+      }
+    }
+
     this.statsSubject.next({
       ...this.statsSubject.value,
       active: false,
     });
 
     return { bestAgents, bestGenome };
+  }
+
+  private updateRun(run: AITrainingRun) {
+    const updatedRuns = this.runsSubject.value.map(existing => existing.id === run.id ? run : existing);
+    this.runsSubject.next(updatedRuns);
+  }
+
+  selectHistoryEntry(entry: AITrainingHistoryEntry) {
+    this.selectedHistoryEntrySubject.next(entry);
   }
 
   private createGenome(): AgentGenome {
