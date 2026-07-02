@@ -137,7 +137,10 @@ export class CarAgent {
       backwardPenalty -
       alignmentPenalty;
 
-    if (!this.state.alive) this.genome.fitness -= 250;
+    if (!this.state.alive) {
+      const deathPenalty = Math.max(1500, this.maxProgress * 600);
+      this.genome.fitness -= deathPenalty;
+    }
     if (this.completedLap) this.genome.fitness += 3000 - this.state.lapTime * 20;
 
         if (!this.state.alive) this.genome.fitness -= 250;

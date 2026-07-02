@@ -119,9 +119,14 @@ export class AIDrivingService {
     const trackLength = getTrackLength(buildTrackPath(segments, 2));
     const perf = calculatePerformance(settings);
     const topSpeedMs = Math.max(5, perf.topSpeed / 3.6);
-    // realistic lap average is much lower than top speed once corners/braking are factored in
-    const estimatedAvgSpeed = Math.max(3, topSpeedMs * 0.35);
-    const simulationSteps = calculateSimulationSteps(trackLength, estimatedAvgSpeed, 1 / 30);
+    
+    const pessimisticAvgSpeed = Math.max(2, topSpeedMs * 0.15);
+    const dt = 1 / 30;
+    const rawSteps = calculateSimulationSteps(trackLength, pessimisticAvgSpeed, dt);
+
+    // hard safety floor: guarantee at least e.g. 45 seconds of sim time regardless of track length calc
+    const minTimeSeconds = 45;
+    const simulationSteps = Math.max(rawSteps, Math.ceil(minTimeSeconds / dt));;
 
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
@@ -174,7 +179,6 @@ export class AIDrivingService {
       const stagnationBoost = stagnationCounter >= 6; // no improvement for 6 gens → shake things up
       if (stagnationBoost) stagnationCounter = 0; // reset after boosting
 
-      // pass it in:
       population = this.evolvePopulation(population, mutationRate, stagnationBoost);
 
       this.statsSubject.next({
