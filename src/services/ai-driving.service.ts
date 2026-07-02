@@ -4,6 +4,7 @@ import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome } from '../models/CarAgent';
 import { Segment } from '../models/Track';
 import { buildTrackPath, getTrackLength } from '../utils/track-utils';
+import { calculatePerformance } from '../utils/car-physics';
 
 export interface AILearningConfig {
   populationSize: number;
@@ -116,7 +117,11 @@ export class AIDrivingService {
 
     let bestAgentSnapshot: { genome: AgentGenome; trajectory: any[]; state: any } | null = null;
     const trackLength = getTrackLength(buildTrackPath(segments, 2));
-    const simulationSteps = calculateSimulationSteps(trackLength, 20, 1 / 30);
+    const perf = calculatePerformance(settings);
+    const topSpeedMs = Math.max(5, perf.topSpeed / 3.6);
+    // realistic lap average is much lower than top speed once corners/braking are factored in
+    const estimatedAvgSpeed = Math.max(3, topSpeedMs * 0.35);
+    const simulationSteps = calculateSimulationSteps(trackLength, estimatedAvgSpeed, 1 / 30);
 
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
@@ -156,6 +161,22 @@ export class AIDrivingService {
       const roundedAverageFitness = Math.round(averageFitness * 100) / 100;
       const roundedBestLapTime = Math.round(bestLapTime * 100) / 100;
 
+      let bestFitnessEver = -Infinity;
+      let stagnationCounter = 0;
+
+      // inside the generation loop, after computing roundedBestFitness:
+      if (roundedBestFitness > bestFitnessEver + 1) {
+        bestFitnessEver = roundedBestFitness;
+        stagnationCounter = 0;
+      } else {
+        stagnationCounter++;
+      }
+      const stagnationBoost = stagnationCounter >= 6; // no improvement for 6 gens → shake things up
+      if (stagnationBoost) stagnationCounter = 0; // reset after boosting
+
+      // pass it in:
+      population = this.evolvePopulation(population, mutationRate, stagnationBoost);
+
       this.statsSubject.next({
         generation,
         bestFitness: roundedBestFitness,
@@ -192,6 +213,8 @@ export class AIDrivingService {
       population = this.evolvePopulation(population, mutationRate);
       await new Promise(resolve => setTimeout(resolve, 0));
     }
+
+    
 
     let bestAgents: CarAgent[] = [];
     if (bestAgentSnapshot) {
@@ -231,8 +254,8 @@ export class AIDrivingService {
   }
 
   private createGenome(): AgentGenome {
-    return {
-      weights: Array.from({ length: 24 }, () => (Math.random() * 2 - 1)),
+  return {
+      weights: Array.from({ length: 33 }, () => (Math.random() * 2 - 1)),
       fitness: 0,
       distance: 0,
       lapTime: Infinity,
@@ -241,29 +264,45 @@ export class AIDrivingService {
   }
 
   private async simulateAgents(agents: CarAgent[], steps: number, dt: number) {
-    const renderEvery = 5;
-    for (let step = 0; step < steps; step++) {
-      if (this.stopRequested) break;
-      agents.forEach(agent => agent.update(dt));
-      if (step % renderEvery === 0) {
-        this.populationSubject.next(agents);
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-    this.populationSubject.next(agents);
-  }
+  const renderEvery = 5;
+  for (let step = 0; step < steps; step++) {
+    if (this.stopRequested) break;
 
-  private evolvePopulation(population: AgentGenome[], mutationRate: number): AgentGenome[] {
+    let anyAlive = false;
+    agents.forEach(agent => {
+      agent.update(dt);
+      if (agent.state.alive) anyAlive = true;
+    });
+
+    if (!anyAlive) break; // everyone either crashed or completed the lap — no point continuing
+
+    if (step % renderEvery === 0) {
+      this.populationSubject.next(agents);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+  this.populationSubject.next(agents);
+}
+
+  private evolvePopulation(population: AgentGenome[], mutationRate: number, stagnationBoost = false): AgentGenome[] {
     const sorted = [...population].sort((a, b) => b.fitness - a.fitness);
     const eliteCount = Math.max(1, Math.floor(sorted.length * 0.15));
     const next: AgentGenome[] = sorted.slice(0, eliteCount).map(g => ({ ...g, weights: [...g.weights], alive: g.alive }));
+
+    // inject fresh random genomes to escape local optima
+    const injectCount = stagnationBoost ? Math.floor(sorted.length * 0.15) : Math.floor(sorted.length * 0.05);
+    for (let i = 0; i < injectCount && next.length < sorted.length; i++) {
+      next.push(this.createGenome());
+    }
+
+    const effectiveMutationRate = stagnationBoost ? Math.min(1, mutationRate * 3) : mutationRate;
 
     while (next.length < sorted.length) {
       const parentA = this.selectParent(sorted);
       const parentB = this.selectParent(sorted);
       const childWeights = parentA.weights.map((weight, i) => (weight + parentB.weights[i]) / 2);
       next.push({
-        weights: childWeights.map(weight => this.mutateWeight(weight, mutationRate)),
+        weights: childWeights.map(weight => this.mutateWeight(weight, effectiveMutationRate)),
         fitness: 0,
         distance: 0,
         lapTime: Infinity,

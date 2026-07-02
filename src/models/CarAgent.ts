@@ -2,7 +2,7 @@ import { RacingLinePoint } from '../interfaces/car-state';
 import { Segment } from './Track';
 import { normalizeAngle, distance, isPointOnTrack, buildTrackPath, closestPointOnPath, rayDistanceToTrackEdge } from '../utils/track-utils';
 import { CarSettings } from '../services/car-settings.service';
-import { calculateLongitudinalAcceleration, calculatePerformance } from '../utils/car-physics';
+import { calculateCorneringSpeedLimit, calculateLongitudinalAcceleration, calculatePerformance, maxBrakingDeceleration, maxLateralAcceleration } from '../utils/car-physics';
 
 export interface AgentGenome {
   weights: number[];
@@ -66,18 +66,33 @@ export class CarAgent {
     if (!this.state.alive || this.completedLap || !this.trackSegments.length) return;
 
     const sensors = this.computeSensors();
-    const speedNorm = this.state.speed / Math.max(this.maxSpeed, 0.1);
     const closest = closestPointOnPath({ x: this.state.x, y: this.state.y }, this.trackPath);
-    const offsetNorm = Math.max(-1, Math.min(1, closest.offset / 10));
-    const inputs = [...sensors, speedNorm, offsetNorm, 1];
+    const curvatureAhead = this.computeLookaheadCurvature(closest.s);
+    const speedNorm = this.state.speed / Math.max(this.maxSpeed, 0.1);
+    const offsetNorm = this.clamp(closest.offset / 10, -1, 1);
+    const speedTargetsAhead = this.computeLookaheadSpeedTargets(closest.s);
+  const inputs = [...sensors, speedNorm, offsetNorm, ...speedTargetsAhead, 1]; // 5+1+1+3+1 = 11
 
-    const steer = this.clamp(this.dot(inputs, this.genome.weights.slice(0, 8)), -1, 1);
-    const throttle = this.clamp(this.dot(inputs, this.genome.weights.slice(8, 16)), 0, 1);
-    const brake = this.clamp(this.dot(inputs, this.genome.weights.slice(16, 24)), 0, 1);
 
-    const acceleration = calculateLongitudinalAcceleration(this.settings, this.state.speed, throttle, brake);
+    const steer = this.clamp(this.dot(inputs, this.genome.weights.slice(0, 11)), -1, 1);
+    const throttle = this.clamp(this.dot(inputs, this.genome.weights.slice(11, 22)), 0, 1);
+    const brake = this.clamp(this.dot(inputs, this.genome.weights.slice(22, 33)), 0, 1);
 
-    this.state.heading += steer * dt * 2.7;
+    // inside update(), replace the heading line:
+    const baseSteerRate = 1.6; // rad/s, max steering angular rate input (not yaw rate)
+    const desiredYawRate = steer * baseSteerRate;
+    const maxLatAcc = maxLateralAcceleration(this.settings, this.state.speed, steer);
+    const maxYawRateFromGrip = this.state.speed > 0.5
+      ? maxLatAcc / this.state.speed
+      : baseSteerRate;
+    const yawRate = this.clamp(desiredYawRate, -maxYawRateFromGrip, maxYawRateFromGrip);
+    const latAccUsed = Math.abs(yawRate) * this.state.speed;
+    const gripUsedRatio = maxLatAcc > 0 ? Math.min(1, latAccUsed / maxLatAcc) : 0;
+    const longGripScale = Math.sqrt(Math.max(0, 1 - gripUsedRatio * gripUsedRatio));
+
+    const acceleration = calculateLongitudinalAcceleration(this.settings, this.state.speed, throttle, brake) * longGripScale;
+
+    this.state.heading += yawRate * dt;
     this.state.speed = this.clamp(this.state.speed + acceleration * dt, 0, this.maxSpeed);
     this.state.x += Math.cos(this.state.heading) * this.state.speed * dt;
     this.state.y += Math.sin(this.state.heading) * this.state.speed * dt;
@@ -106,22 +121,30 @@ export class CarAgent {
 
     const directionalSpeed = Math.max(0, this.state.speed * forwardAlignment);
     const backwardPenalty = Math.max(0, -forwardAlignment) * this.state.speed * 50;
-    const progressReward = closest.s * 1000;
     const alignmentPenalty = Math.max(0, Math.abs(headingError) - Math.PI / 2) * 50;
+
+    const minEdgeDistNorm = Math.min(...sensors); // 0..1, 1 = far from wall
+    const edgePenalty = minEdgeDistNorm < 0.15 ? (0.15 - minEdgeDistNorm) * 300 : 0;
+
+    const progressReward = this.maxProgress * 1000;
+    const avgSpeed = this.state.distance / Math.max(this.state.lapTime, 0.001);
 
     this.genome.fitness =
       progressReward +
-      directionalSpeed * 5 -
-      this.state.lapTime * 3 -
-      closest.distance * 10 -
+      avgSpeed * 15 +
+      directionalSpeed * 3 -
+      edgePenalty -
       backwardPenalty -
       alignmentPenalty;
 
     if (!this.state.alive) this.genome.fitness -= 250;
-    this.genome.distance = this.state.distance;
-    this.genome.lapTime = this.state.lapTime;
-    this.genome.alive = this.state.alive;
-  }
+    if (this.completedLap) this.genome.fitness += 3000 - this.state.lapTime * 20;
+
+        if (!this.state.alive) this.genome.fitness -= 250;
+        this.genome.distance = this.state.distance;
+        this.genome.lapTime = this.state.lapTime;
+        this.genome.alive = this.state.alive;
+      }
 
   private computeSensors(): number[] {
     const angles = [-0.75, -0.35, 0, 0.35, 0.75];
@@ -138,5 +161,54 @@ export class CarAgent {
 
   private clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  private sampleHeadingAtS(targetS: number): number {
+  if (!this.trackPath.length) return 0;
+  const wrapped = ((targetS % this.trackLength) + this.trackLength) % this.trackLength;
+  let lo = 0, hi = this.trackPath.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (this.trackPath[mid].s < wrapped) lo = mid + 1; else hi = mid;
+  }
+  return this.trackPath[lo].heading;
+  }
+
+  private getLookaheadDistances(): number[] {
+  const brakingDecel = maxBrakingDeceleration(this.settings); // m/s²
+  const stoppingDistFromTop = (this.maxSpeed * this.maxSpeed) / (2 * Math.max(brakingDecel, 1));
+  // scale three checkpoints relative to actual stopping capability
+  return [
+    Math.max(6, stoppingDistFromTop * 0.15),
+    Math.max(15, stoppingDistFromTop * 0.4),
+    Math.max(25, stoppingDistFromTop * 0.9),
+  ];
+}
+
+  private sampleCurvatureAtS(targetS: number): number {
+  // approximate curvature via heading change over a short arc
+  const ds = 3;
+  const h1 = this.sampleHeadingAtS(targetS);
+  const h2 = this.sampleHeadingAtS(targetS + ds);
+  const dHeading = Math.abs(normalizeAngle(h2 - h1));
+  return dHeading / ds; // rad per meter ≈ curvature
+}
+
+private computeLookaheadSpeedTargets(currentS: number): number[] {
+  const lookaheads = this.getLookaheadDistances();
+  return lookaheads.map(dist => {
+    const curvature = this.sampleCurvatureAtS(currentS + dist);
+    const vLimit = calculateCorneringSpeedLimit(this.settings, curvature, this.state.speed, 0);
+    return this.clamp(vLimit / Math.max(this.maxSpeed, 0.1), 0, 1);
+  });
+}
+
+  private computeLookaheadCurvature(currentS: number): number[] {
+    const lookaheads = [8, 20, 40]; // meters ahead
+    const baseHeading = this.sampleHeadingAtS(currentS);
+    return lookaheads.map(dist => {
+      const diff = normalizeAngle(this.sampleHeadingAtS(currentS + dist) - baseHeading);
+      return this.clamp(diff / (Math.PI / 2), -1, 1);
+    });
   }
 }
