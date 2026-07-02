@@ -1,18 +1,17 @@
 .track-builder {
   display: flex;
-  flex: 1;
-  height: 100vh;
-  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0; /* allow children to shrink within flex container */
 }
 
 .controls-panel {
-  width: 280px;
-  flex-shrink: 0;
+  width: 240px;
+  flex: 0 0 240px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.92));
   border-right: 1px solid rgba(148, 163, 184, 0.18);
-  padding: 16px;
+  padding: 10px;
   overflow-y: auto;
-  max-height: 100vh;
+  max-height: 100%;
 }
 
 .control-group {
@@ -267,14 +266,14 @@
 }
 
 .canvas-container {
-  flex: 1;
+  flex: 1 1 auto;
   background: var(--color-bg-primary);
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* align top to avoid large empty vertical gaps */
   justify-content: center;
-  overflow: auto; /* allow scrolling when canvas is larger than viewport */
-  padding: 16px;
-  max-height: 100vh;
+  overflow: auto; /* allow scrolling when canvas is larger than container */
+  padding: 8px;
+  max-height: 100%;
 }
 
 canvas {
@@ -284,7 +283,7 @@ canvas {
   cursor: crosshair;
   display: block;
   max-width: 100%;
-  max-height: calc(100vh - 32px); /* keep some padding from container */
+  max-height: calc(100% - 16px); /* keep some padding from container */
 
   &:active {
     cursor: grabbing;

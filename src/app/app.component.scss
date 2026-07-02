@@ -52,5 +52,51 @@
 .app-main {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow: hidden; /* keep page from scrolling; panels scroll internally */
+  min-height: 0; /* allow children to shrink in flex layout */
+}
+
+/* Ensure component hosts behave as flex children and allow internal scrolling */
+app-car-settings,
+app-results-panel {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+app-track-view {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+/* Responsive layout: stack panels on smaller screens */
+@media (max-width: 900px) {
+  .app-main {
+    flex-direction: column;
+    gap: 8px;
+    padding: 0; /* avoid extra page height */
+    height: calc(100vh - 56px); /* keep within viewport below header */
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-header {
+    padding: 0 12px;
+  }
+
+  /* make side panels full-width and limited height so main canvas stays usable */
+  app-car-settings,
+  app-results-panel {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 34vh; /* limit height so stacked panels don't overflow */
+    overflow: hidden;
+  }
+
+  app-track-view {
+    width: 100%;
+    flex: 1 1 auto;
+  }
 }
