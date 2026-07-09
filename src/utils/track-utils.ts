@@ -25,11 +25,9 @@ export function buildTrackPath(segments: Segment[], step = 2): RacingLinePoint[]
     for (let i = 0; i <= steps; i++) {
       const dist = (i / steps) * length;
       const basePoint = computeSegmentPoint(seg, dist);
-      const offset = getRacingLineOffset(seg, i, steps, basePoint.heading);
-
       const point = {
-        x: basePoint.x + offset.x,
-        y: basePoint.y + offset.y,
+        x: basePoint.x,
+        y: basePoint.y,
         heading: basePoint.heading,
       };
 
@@ -49,24 +47,6 @@ export function buildTrackPath(segments: Segment[], step = 2): RacingLinePoint[]
   return path;
 }
 
-function getRacingLineOffset(seg: Segment, index: number, steps: number, heading: number): { x: number; y: number } {
-  if (seg.type === 'start' || seg.type === 'straight') {
-    return { x: 0, y: 0 };
-  }
-
-  const curveProgress = steps > 1 ? index / steps : 0.5;
-  const normalizedProgress = Math.max(0, Math.min(1, curveProgress));
-  const weight = 1 - 2 * Math.abs(normalizedProgress - 0.5);
-  const magnitude = Math.min(3.5, Math.max(1.2, (seg.radius ?? 60) * 0.025));
-  const turnDirection = Math.sign(seg.angle ?? 90) || 1;
-  const offset = -turnDirection * magnitude * Math.max(0, weight);
-  const normal = { x: -Math.sin(heading), y: Math.cos(heading) };
-
-  return {
-    x: normal.x * offset,
-    y: normal.y * offset,
-  };
-}
 
 export function closestPointOnPath(point: { x: number; y: number }, path: RacingLinePoint[]) {
   let best = { point: { x: 0, y: 0 }, index: 0, s: 0, heading: 0, distance: Infinity, offset: 0 };

@@ -75,7 +75,7 @@ export class CarSettingsService {
       presetId: preset.id,
       ...preset.settings,
     });
-  }
+  } 
 
   get presets() {
     return CAR_PRESETS;

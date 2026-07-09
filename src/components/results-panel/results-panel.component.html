@@ -10,7 +10,7 @@
   <ng-container *ngIf="runs.length; else emptyState">
     <div class="runs-list">
       <section *ngFor="let run of runs" class="run-card">
-        <button type="button" class="run-header" (click)="toggleRun(run)">
+        <div class="run-header" (click)="toggleRun(run)" role="button" tabindex="0">
           <div>
             <strong>{{ run.label }}</strong>
             <div class="run-meta">
@@ -19,8 +19,11 @@
               <span>Fitness {{ run.bestFitness.toFixed(1) }}</span>
             </div>
           </div>
-          <div class="run-toggle">{{ isRunExpanded(run) ? '▾' : '▸' }}</div>
-        </button>
+          <div class="run-actions">
+            <button type="button" class="run-export" (click)="exportRun(run); $event.stopPropagation()">Export</button>
+            <span class="run-toggle">{{ isRunExpanded(run) ? '▾' : '▸' }}</span>
+          </div>
+        </div>
 
         <div class="run-entries" *ngIf="isRunExpanded(run)">
           <button

@@ -128,6 +128,9 @@ export class AIDrivingService {
     const minTimeSeconds = 45;
     const simulationSteps = Math.max(rawSteps, Math.ceil(minTimeSeconds / dt));;
 
+    let bestFitnessEver = -Infinity;
+    let stagnationCounter = 0;
+
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
 
@@ -166,9 +169,6 @@ export class AIDrivingService {
       const roundedAverageFitness = Math.round(averageFitness * 100) / 100;
       const roundedBestLapTime = Math.round(bestLapTime * 100) / 100;
 
-      let bestFitnessEver = -Infinity;
-      let stagnationCounter = 0;
-
       // inside the generation loop, after computing roundedBestFitness:
       if (roundedBestFitness > bestFitnessEver + 1) {
         bestFitnessEver = roundedBestFitness;
@@ -176,10 +176,10 @@ export class AIDrivingService {
       } else {
         stagnationCounter++;
       }
-      const stagnationBoost = stagnationCounter >= 6; // no improvement for 6 gens → shake things up
-      if (stagnationBoost) stagnationCounter = 0; // reset after boosting
+      const stagnationBoost = stagnationCounter >= 6;
+      if (stagnationBoost) stagnationCounter = 0;
 
-      population = this.evolvePopulation(population, mutationRate, stagnationBoost);
+      
 
       this.statsSubject.next({
         generation,
