@@ -6,7 +6,6 @@ import {
   closestPointOnPath,
   rayDistanceToTrackEdge,
   distanceBeyondTrackEdge,
-  TRACK_HALF_WIDTH,
 } from '../utils/track-utils';
 import { CarSettings } from '../services/car-settings.service';
 import {
@@ -21,6 +20,9 @@ import { runPolicy } from '../utils/neural-policy';
 
 export const AI_INPUT_COUNT = 14;
 export const AI_HIDDEN_SIZE = 12;
+
+/** Record one trajectory point per N simulation steps (rendering needs far less than 30Hz). */
+const TRAJECTORY_SAMPLE_EVERY = 3;
 
 export interface AgentGenome {
   weights: number[];
@@ -61,12 +63,13 @@ export class CarAgent {
   private stagnationTime = 0;
   private lastFrontUsage = 0;
   private lastRearUsage = 0;
+  private lastBeyondEdge: number | null = null;
+  private stepIndex = 0;
 
   private overspeedSum = 0;
   private gripRewardSum = 0;
   private gripSamples = 0;
   private spinPenaltySum = 0;
-  private offsetSum = 0;
   private edgeSum = 0;
   private backwardSum = 0;
   private qualitySamples = 0;
@@ -91,11 +94,12 @@ export class CarAgent {
     this.stagnationTime = 0;
     this.lastFrontUsage = 0;
     this.lastRearUsage = 0;
+    this.lastBeyondEdge = null;
+    this.stepIndex = 0;
     this.overspeedSum = 0;
     this.gripRewardSum = 0;
     this.gripSamples = 0;
     this.spinPenaltySum = 0;
-    this.offsetSum = 0;
     this.edgeSum = 0;
     this.backwardSum = 0;
     this.qualitySamples = 0;
@@ -149,7 +153,9 @@ export class CarAgent {
     const throttle = this.clamp(throttleOut, 0, 1);
     const brake = this.clamp(brakeOut, 0, 1);
 
-    const beyondEdgeBefore = distanceBeyondTrackEdge(
+    // The car has not moved since the previous step measured this exact position, so reuse that
+    // result instead of re-scanning the whole track.
+    const beyondEdgeBefore = this.lastBeyondEdge ?? distanceBeyondTrackEdge(
       { x: this.state.x, y: this.state.y },
       this.trackSegments,
       this.driving.carRadius
@@ -174,7 +180,13 @@ export class CarAgent {
     this.state.distance += Math.abs(this.state.speed * dt);
 
     const closestAfter = closestPointOnPath({ x: this.state.x, y: this.state.y }, this.trackPath);
-    this.trajectory.push({ x: this.state.x, y: this.state.y, heading: this.state.heading, s: closestAfter.s });
+    // Subsampled: one point per step is far finer than anything the rendered line needs, and
+    // every generation's best trajectory is retained in the run history — at the longer budgets
+    // a large track requires that grew into hundreds of thousands of retained points.
+    this.stepIndex++;
+    if (this.stepIndex % TRAJECTORY_SAMPLE_EVERY === 0) {
+      this.trajectory.push({ x: this.state.x, y: this.state.y, heading: this.state.heading, s: closestAfter.s });
+    }
 
     const beyondEdgeAfter = distanceBeyondTrackEdge(
       { x: this.state.x, y: this.state.y },
@@ -182,6 +194,7 @@ export class CarAgent {
       this.driving.carRadius
     );
     const onTrack = beyondEdgeAfter <= 0.01;
+    this.lastBeyondEdge = beyondEdgeAfter;
 
     if (!onTrack) {
       this.offTrackTime += dt;
@@ -189,14 +202,34 @@ export class CarAgent {
       this.offTrackTime = Math.max(0, this.offTrackTime - dt * 2);
     }
 
+    const headingError = normalizeAngle(this.state.heading - closest.heading);
+    const forwardAlignment = Math.cos(headingError);
+
+    // Crossing the finish has to be judged before the off-track check. On an open layout there
+    // is no tarmac past the final segment, so a car that drives *through* the finish is outside
+    // every segment on the next step and was being scored as a crash. That made finishing a
+    // knife-edge — the car had to stop inside a few metres of the end rather than drive over it,
+    // so laps were never completed and the whole lap-time incentive stayed dormant.
+    const FINISH_TOLERANCE = 6; // meters
+    const nearFinishLine = this.trackLength > 0
+      && this.maxProgress >= this.trackLength * 0.85
+      && Math.max(this.maxProgress, closestAfter.s) >= this.trackLength - FINISH_TOLERANCE;
+
+    if (nearFinishLine && forwardAlignment > 0.3) {
+      this.maxProgress = this.trackLength;
+      this.completedLap = true;
+      this.state.alive = false;
+      this.genome.alive = false;
+      this.accumulateDrivingQuality(closestAfter.s, steer, brake, dynResult, Math.min(...sensors), forwardAlignment);
+      this.updateFitness(0);
+      return;
+    }
+
     const HARD_CUTOFF_DISTANCE = 8; // meters past the edge — clearly in the barrier, not a wide exit
     if (beyondEdgeAfter > HARD_CUTOFF_DISTANCE || this.offTrackTime >= this.driving.offTrackGraceSeconds) {
       this.state.alive = false;
       this.genome.alive = false;
     }
-
-    const headingError = normalizeAngle(this.state.heading - closest.heading);
-    const forwardAlignment = Math.cos(headingError);
 
     let progressDelta = 0;
     if (onTrack && (forwardAlignment > 0.15 || closest.distance < 2)) {
@@ -218,18 +251,11 @@ export class CarAgent {
       }
     }
 
-    if (this.trackLength > 0 && this.maxProgress >= this.trackLength - 4 && forwardAlignment > 0.3) {
-      this.completedLap = true;
-      this.state.alive = false;
-      this.genome.alive = false;
-    }
-
     this.accumulateDrivingQuality(
       closestAfter.s,
       steer,
       brake,
       dynResult,
-      closestAfter.offset,
       Math.min(...sensors),
       forwardAlignment
     );
@@ -249,7 +275,6 @@ export class CarAgent {
     steer: number,
     brake: number,
     dynResult: ReturnType<typeof stepVehicleDynamics>,
-    offset: number,
     minSensor: number,
     forwardAlignment: number
   ) {
@@ -267,7 +292,6 @@ export class CarAgent {
 
     // Time-averaged line-quality samples. These were previously read only from the final
     // simulation step, so they described one arbitrary instant rather than the whole lap.
-    this.offsetSum += this.clamp(Math.abs(offset) / TRACK_HALF_WIDTH, 0, 1);
     this.edgeSum += this.clamp((0.15 - minSensor) / 0.15, 0, 1);
     this.backwardSum += Math.max(0, -forwardAlignment);
     this.qualitySamples++;
@@ -298,8 +322,14 @@ export class CarAgent {
 
     const samples = Math.max(1, this.qualitySamples);
     const overspeedPenalty = (this.overspeedSum / samples) * 3000;
-    const centerlinePenalty = (this.offsetSum / samples) * 500;
-    const edgePenalty = (this.edgeSum / samples) * 400;
+    // No centerline term: a racing line is *defined* by leaving the centerline — running wide on
+    // entry, clipping the apex, opening the exit, and straightening a chicane into one line.
+    // Penalizing lateral offset rewarded tracing the centerline's curvature instead, which is
+    // exactly why a chicane came out as a wiggle rather than being straightened out. Staying on
+    // the road is enforced by the hard track limits; the line itself is shaped by lap time.
+    // The edge term is likewise only a light wall-scrape deterrent now, not a "keep to the
+    // middle" prior, since using the full track width is correct.
+    const edgePenalty = (this.edgeSum / samples) * 150;
     const backwardPenalty = (this.backwardSum / samples) * 1200;
     const spinPenalty = (this.spinPenaltySum / samples) * 400;
 
@@ -310,7 +340,7 @@ export class CarAgent {
     // progress and silently discarded every line-quality signal below.
     const qualityPenalty = Math.min(
       3000,
-      overspeedPenalty + centerlinePenalty + edgePenalty + backwardPenalty + spinPenalty
+      overspeedPenalty + edgePenalty + backwardPenalty + spinPenalty
     );
 
     const avgGripReward = this.gripSamples > 0 ? this.gripRewardSum / this.gripSamples : 0;
@@ -333,7 +363,10 @@ export class CarAgent {
 
     if (this.completedLap) {
       const referenceLapTime = this.optimalLapTime > 0 ? this.optimalLapTime : this.state.lapTime;
-      const timeRatio = this.clamp(referenceLapTime / Math.max(this.state.lapTime, 0.01), 0.2, 1.5);
+      // Cap well above 1 so a lap quicker than the reference keeps earning more. The reference
+      // is a quasi-static estimate over the smoothed centerline, and a real racing line can
+      // legitimately beat it — a tight cap would flatten the incentive to keep sharpening.
+      const timeRatio = this.clamp(referenceLapTime / Math.max(this.state.lapTime, 0.01), 0.2, 3);
       fitness += 12000 * timeRatio;
     }
 

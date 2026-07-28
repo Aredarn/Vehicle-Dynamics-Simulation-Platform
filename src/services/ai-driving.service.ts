@@ -55,19 +55,31 @@ const GENOME_WEIGHT_COUNT = weightCount(AI_INPUT_COUNT, AI_HIDDEN_SIZE);
 /** Default Gaussian step size for weight mutation, relative to typical weight magnitude (~0.25). */
 const BASE_MUTATION_SIGMA = 0.12;
 
+/**
+ * Time budget per generation, in steps.
+ *
+ * Prefer `referenceLapSeconds` (the optimizer's near-ideal lap time), because it accounts for
+ * how slow the actual corners are. Deriving the budget from a fraction of straight-line top
+ * speed badly overestimates average pace on a twisty layout, so on larger tracks the clock ran
+ * out mid-lap: agents were still alive at the end having never crossed the line, which made a
+ * completed lap — and therefore any lap-time optimization — impossible to ever observe.
+ */
 export function calculateSimulationSteps(
   trackLength: number,
   topSpeedMs: number,
   dt: number,
+  referenceLapSeconds = 0,
   minSteps = 1200
 ): number {
   const safeLength = Math.max(50, trackLength);
   const safeTopSpeed = Math.max(8, topSpeedMs);
 
-  // Learning agents typically run ~35–55% of top speed while exploring.
-  const learningSpeed = Math.max(4, safeTopSpeed * 0.45);
-  const estimatedLapSeconds = safeLength / learningSpeed;
-  const targetSeconds = Math.max(75, estimatedLapSeconds * 2.2);
+  // A learning agent laps well off the ideal pace, so allow a generous multiple of it.
+  const estimatedLapSeconds = referenceLapSeconds > 0
+    ? referenceLapSeconds * 3
+    : (safeLength / Math.max(4, safeTopSpeed * 0.45)) * 2.2;
+
+  const targetSeconds = Math.max(75, estimatedLapSeconds);
   return Math.max(minSteps, Math.ceil(targetSeconds / dt));
 }
 
@@ -92,6 +104,7 @@ export class AIDrivingService {
   private selectedHistoryEntrySubject = new BehaviorSubject<AITrainingHistoryEntry | null>(null);
   selectedHistoryEntry$: Observable<AITrainingHistoryEntry | null> = this.selectedHistoryEntrySubject.asObservable();
   private stopRequested = false;
+  private trainingActive = false;
 
   constructor(private racingLineOptimizer: RacingLineOptimizerService) {}
 
@@ -112,6 +125,12 @@ export class AIDrivingService {
     segments: Segment[],
     config: AILearningConfig
   ): Promise<{ bestAgents: CarAgent[]; bestGenome: AgentGenome | null }> {
+    // A second concurrent run would interleave its generations into the same stats/population
+    // streams as the first, making the reported progress of both incoherent.
+    if (this.trainingActive) {
+      return { bestAgents: [], bestGenome: null };
+    }
+    this.trainingActive = true;
     this.stopRequested = false;
     this.clearHistory();
 
@@ -140,26 +159,38 @@ export class AIDrivingService {
     this.runsSubject.next([...existingRuns, currentRun]);
 
     let bestAgentSnapshot: { genome: AgentGenome; trajectory: CarAgent['trajectory']; state: CarAgent['state'] } | null = null;
-    const centerline = buildTrackPath(segments, 2);
+
+    // Freeze the layout for the whole run. The caller hands us the live array the track builder
+    // mutates in place (adding a piece or undoing one), and every generation re-reads it — so an
+    // edit mid-run silently changed trackLength underneath the agents. Because progressRatio is
+    // measured against that length, the same driving suddenly scored far lower and the reported
+    // best fitness collapsed, while the reference line below still described the old layout.
+    const track: Segment[] = segments.map(segment => ({
+      ...segment,
+      position: { ...segment.position },
+    }));
+
+    const centerline = buildTrackPath(track, 2);
     const trackLength = getTrackLength(centerline);
     const perf = calculatePerformance(settings);
     const topSpeedMs = Math.max(8, perf.topSpeed / 3.6);
     const dt = 1 / 30;
-    const simulationSteps = calculateSimulationSteps(trackLength, topSpeedMs, dt);
 
     // Reference speed profile/lap time used to shape the reward (see CarAgent.updateFitness) —
-    // reuses the same optimizer the UI's racing-line display uses, computed once per run since
-    // the track/settings don't change mid-run.
+    // reuses the same optimizer the UI's racing-line display uses, computed once per run.
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
+    const simulationSteps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
 
     let bestFitnessEver = -Infinity;
     let stagnationCounter = 0;
+    // Carried forward every generation so the best genome found can never be lost.
+    let hallOfFame: AgentGenome | null = null;
 
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
 
       const agents = population.map(genome => new CarAgent(this.cloneGenome(genome), settings));
-      agents.forEach(agent => agent.reset(segments, optimalLine.points, optimalLine.estimatedLapTime));
+      agents.forEach(agent => agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime));
 
       this.populationSubject.next(agents);
       await this.simulateAgents(agents, simulationSteps, dt);
@@ -167,6 +198,10 @@ export class AIDrivingService {
       population = agents.map(agent => this.cloneGenome(agent.genome));
       population.sort((a, b) => this.compareGenomes(a, b));
       bestGenome = population[0];
+
+      if (bestGenome && (!hallOfFame || this.compareGenomes(bestGenome, hallOfFame) < 0)) {
+        hallOfFame = this.cloneGenome(bestGenome);
+      }
 
       const bestAgent = agents.reduce((best, agent) =>
         this.compareGenomes(agent.genome, best.genome) < 0 ? agent : best, agents[0]);
@@ -197,7 +232,12 @@ export class AIDrivingService {
       // 5 stagnant generations and immediately reverting regardless of whether it worked — a
       // stubborn plateau now gets a progressively stronger push rather than the same weak nudge
       // repeated. Only resets on a genuine improvement, above.
-      const stagnationLevel = Math.floor(stagnationCounter / 5);
+      //
+      // Capped: an uncapped level ratchets up for as long as the run is stuck, and since the
+      // incumbent is preserved and re-scored deterministically it can never be dislodged by the
+      // resulting noise, so the escalation never stands down. Beyond a few levels more randomness
+      // does not buy more exploration, it just erases the population.
+      const stagnationLevel = Math.min(3, Math.floor(stagnationCounter / 5));
 
       this.statsSubject.next({
         generation,
@@ -236,19 +276,24 @@ export class AIDrivingService {
       if (generation === generations || this.stopRequested) break;
 
       population = this.evolvePopulation(population, mutationRate, stagnationLevel);
+      // Re-seat the all-time best. Ordinary elitism already preserves it while the inputs hold
+      // still, but this makes "the best never regresses" true by construction.
+      if (hallOfFame && population.length) {
+        population[population.length - 1] = this.cloneGenome(hallOfFame);
+      }
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     let bestAgents: CarAgent[] = [];
     if (bestAgentSnapshot) {
       const agent = new CarAgent(this.cloneGenome(bestAgentSnapshot.genome), settings);
-      agent.reset(segments, optimalLine.points, optimalLine.estimatedLapTime);
+      agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
       agent.trajectory = bestAgentSnapshot.trajectory.map(point => ({ ...point }));
       agent.state = { ...bestAgentSnapshot.state };
       bestAgents = [agent];
     } else if (bestGenome) {
       bestAgents = [new CarAgent(this.cloneGenome(bestGenome), settings)];
-      bestAgents[0].reset(segments, optimalLine.points, optimalLine.estimatedLapTime);
+      bestAgents[0].reset(track, optimalLine.points, optimalLine.estimatedLapTime);
     }
 
     const lastEntry = currentRun.entries[currentRun.entries.length - 1];
@@ -259,6 +304,7 @@ export class AIDrivingService {
       active: false,
     });
 
+    this.trainingActive = false;
     return { bestAgents, bestGenome };
   }
 
@@ -309,7 +355,9 @@ export class AIDrivingService {
   }
 
   private async simulateAgents(agents: CarAgent[], steps: number, dt: number) {
-    const renderEvery = 4;
+    // Each yield costs a macrotask (~4ms floor), so this dominates wall-clock time on the long
+    // budgets a large track needs. 16 still animates smoothly at 30Hz simulation rate.
+    const renderEvery = 16;
     for (let step = 0; step < steps; step++) {
       if (this.stopRequested) break;
 
@@ -336,9 +384,14 @@ export class AIDrivingService {
     const sorted = [...population].sort((a, b) => this.compareGenomes(a, b));
     const size = sorted.length;
 
-    // Step size grows while a run is stuck so the search widens, but stays small by default so
-    // the leaders can be refined in fine increments.
-    const sigma = Math.min(0.5, BASE_MUTATION_SIGMA * (1 + stagnationLevel * 0.6));
+    // Only the *exploration* step size grows while a run is stuck, and only modestly. Typical
+    // weight magnitude is ~0.25, so a sigma near or above that randomizes a weight rather than
+    // adjusting it — the previous ceiling of 0.5 (and up to 1.0 once the refine band's ×2 scale
+    // was applied) turned the whole grid into noise on a long plateau. Since noise can never
+    // beat the incumbent, stagnation then fed on itself: more flat generations produced more
+    // noise, which guaranteed more flat generations, and the population average fell steadily
+    // while the same elite sat on top.
+    const exploreSigma = Math.min(0.25, BASE_MUTATION_SIGMA * (1 + stagnationLevel * 0.4));
 
     // Only a couple of untouched clones. The simulation is deterministic, so an exact elite
     // re-drives a bit-identical lap every generation — keeping 20% of the grid as exact copies
@@ -351,13 +404,19 @@ export class AIDrivingService {
     // large lucky mutation, which is why gains arrived as sudden jumps rather than steady
     // improvement. Probing multiple scales together means a plateau gets both fine polish and
     // bolder nudges in the same generation, instead of betting the whole grid on one step size.
+    // Deliberately independent of stagnationLevel: local search has to stay local to work. It is
+    // the mechanism that produces steady gains, so scaling it up on a plateau destroyed the one
+    // thing capable of escaping the plateau. A lower per-weight rate also keeps each child a
+    // small edit of its parent rather than a wholesale rewrite.
     const leaderPool = Math.max(1, Math.floor(size * 0.2));
     const refineCount = Math.floor(size * 0.4);
-    const scales = [0.25, 0.5, 1, 2];
+    const scales = [0.25, 0.5, 1, 1.5];
     for (let i = 0; i < refineCount && next.length < size; i++) {
       const parent = sorted[i % leaderPool];
       const scale = scales[i % scales.length];
-      next.push(this.spawnGenome(parent.weights.map(w => this.mutateWeight(w, 0.6, sigma * scale))));
+      next.push(this.spawnGenome(
+        parent.weights.map(w => this.mutateWeight(w, 0.35, BASE_MUTATION_SIGMA * scale))
+      ));
     }
 
     // Fresh blood keeps some diversity, but stays a small minority: a random point in a
@@ -370,8 +429,10 @@ export class AIDrivingService {
       next.push(this.createGenome());
     }
 
-    const mutationMultiplier = Math.min(4, 1 + stagnationLevel * 0.6);
-    const effectiveMutationRate = Math.min(1, mutationRate * mutationMultiplier);
+    // Capped well below 1: at a rate of 1 every weight of every child is perturbed at once, which
+    // is a new random genome wearing its parents' name rather than a recombination of them.
+    const mutationMultiplier = Math.min(2, 1 + stagnationLevel * 0.25);
+    const effectiveMutationRate = Math.min(0.6, mutationRate * mutationMultiplier);
 
     while (next.length < size) {
       const parentA = this.selectParent(sorted);
@@ -380,7 +441,7 @@ export class AIDrivingService {
       // Arithmetic averaging tends to dilute both parents' successful patterns into a blend
       // that has neither — uniform crossover preserves each parent's actual "building blocks".
       const childWeights = parentA.weights.map((weight, i) => Math.random() < 0.5 ? weight : parentB.weights[i]);
-      next.push(this.spawnGenome(childWeights.map(w => this.mutateWeight(w, effectiveMutationRate, sigma))));
+      next.push(this.spawnGenome(childWeights.map(w => this.mutateWeight(w, effectiveMutationRate, exploreSigma))));
     }
 
     return next;
