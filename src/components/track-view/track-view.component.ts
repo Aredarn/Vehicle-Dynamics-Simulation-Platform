@@ -38,9 +38,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     generation: 0,
     bestFitness: 0,
     bestLapTime: 0,
+    bestProgress: 0,
     aliveCount: 0,
     averageFitness: 0,
     active: false,
+    carModel: '',
   };
   aiConfig = {
     populationSize: 25,
@@ -866,6 +868,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   get segmentCount(): number { return Math.max(0, this.segments.length - 1); }
   get isTraining(): boolean { return this.aiStats.active; }
   get trainingLabel(): string { return this.isTraining ? 'Training AI...' : 'Train AI'; }
+  get activeCarModel(): string { return this.settingsService.getSettings().name; }
 
   get trackLength(): string {
     if (this.racingLine.length < 2) return '0 m';

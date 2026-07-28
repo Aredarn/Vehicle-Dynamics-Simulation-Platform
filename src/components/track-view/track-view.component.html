@@ -82,6 +82,7 @@
 
     <div class="control-group">
       <h4>AI Training</h4>
+      <p class="hint" *ngIf="activeCarModel">Training car: <strong>{{ activeCarModel }}</strong></p>
       <div class="settings-grid">
         <label>
           Population
@@ -106,6 +107,7 @@
       </div>
       <div class="info-display" *ngIf="aiStats.generation > 0">
         <p><strong>Gen:</strong> {{ aiStats.generation }} / {{ aiConfig.generations }}</p>
+        <p><strong>Best progress:</strong> {{ aiStats.bestProgress }}%</p>
         <p><strong>Best lap:</strong> {{ aiStats.bestLapTime }}s</p>
         <p><strong>Best fitness:</strong> {{ aiStats.bestFitness }}</p>
         <p><strong>Alive:</strong> {{ aiStats.aliveCount }}</p>

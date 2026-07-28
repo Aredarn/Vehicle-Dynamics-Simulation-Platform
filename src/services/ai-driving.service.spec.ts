@@ -2,11 +2,16 @@ import { calculateSimulationSteps } from './ai-driving.service';
 
 describe('AIDrivingService simulation timing', () => {
   it('scales simulation steps for longer tracks', () => {
-    const shortTrackSteps = calculateSimulationSteps(400, 20, 1 / 30);
-    const longTrackSteps = calculateSimulationSteps(1600, 20, 1 / 30);
+    const shortTrackSteps = calculateSimulationSteps(400, 60, 1 / 30);
+    const longTrackSteps = calculateSimulationSteps(2000, 80, 1 / 30);
 
-    expect(shortTrackSteps).toBeGreaterThanOrEqual(900);
+    expect(shortTrackSteps).toBeGreaterThanOrEqual(1200);
     expect(longTrackSteps).toBeGreaterThan(shortTrackSteps);
-    expect(longTrackSteps).toBeGreaterThan(900);
+  });
+
+  it('allocates enough time for slow learners on long tracks', () => {
+    const steps = calculateSimulationSteps(3000, 90, 1 / 30);
+    const seconds = steps / 30;
+    expect(seconds).toBeGreaterThanOrEqual(120);
   });
 });
