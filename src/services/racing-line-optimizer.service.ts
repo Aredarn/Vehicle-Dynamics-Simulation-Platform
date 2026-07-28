@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { RacingLinePoint } from '../interfaces/car-state';
 import { CarSettings } from './car-settings.service';
-import { maxLateralAcceleration, maxLongitudinalForce, maxBrakingDeceleration } from '../utils/car-physics';
+import { maxLateralAcceleration, maxLongitudinalForce, maxBrakingDeceleration, calculatePerformance } from '../utils/car-physics';
 
 export interface OptimizedRacingLine {
   points: RacingLinePoint[];
@@ -24,14 +24,23 @@ export class RacingLineOptimizerService {
     const curvatures = this.computeCurvatures(racingLine);
     const maxLatAcc = maxLateralAcceleration(settings);
     const maxBrakeDecel = maxBrakingDeceleration(settings);
+    // Straights were previously capped at a hardcoded 120 m/s (432 km/h) regardless of the car,
+    // so the profile demanded speeds no car here can reach. That made this profile useless as a
+    // reward reference and produced optimistic lap-time estimates.
+    const topSpeedMs = Math.max(8, calculatePerformance(settings).topSpeed / 3.6);
 
     const speedLimits = racingLine.map((_, i) => {
       const kappa = curvatures[i];
-      if (kappa < 0.0001) return 120;
-      return Math.sqrt(maxLatAcc / kappa);
+      if (kappa < 0.0001) return topSpeedMs;
+      return Math.min(topSpeedMs, Math.sqrt(maxLatAcc / kappa));
     });
 
     const targetSpeeds = [...speedLimits];
+
+    // The lap begins from rest, so the profile must too. Seeding the forward pass with the
+    // straight-line limit instead claimed top speed was already available on the start line,
+    // which no car can satisfy and which made the reference lap time unreachably quick.
+    targetSpeeds[0] = 0;
 
     for (let i = 1; i < racingLine.length; i++) {
       const ds = racingLine[i].s - racingLine[i - 1].s;
@@ -52,7 +61,7 @@ export class RacingLineOptimizerService {
 
     const points = racingLine.map((p, i) => ({
       ...p,
-      targetSpeed: Math.max(5, targetSpeeds[i]),
+      targetSpeed: Math.min(topSpeedMs, Math.max(5, targetSpeeds[i])),
     }));
 
     let lapTime = 0;

@@ -38,9 +38,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     generation: 0,
     bestFitness: 0,
     bestLapTime: 0,
+    bestProgress: 0,
     aliveCount: 0,
     averageFitness: 0,
     active: false,
+    carModel: '',
   };
   aiConfig = {
     populationSize: 25,
@@ -75,6 +77,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   ];
 
   private lastTime = 0;
+  private needsRedraw = true;
   private animationFrameId: number | null = null;
 
   segments: Segment[] = [];
@@ -100,23 +103,23 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.car = new Car(this.settingsService.getSettings());
     this.carColor = this.settingsService.getActivePresetColor();
     this.fitTrackToView();
-    this.drawAll();
+    this.requestRedraw();
 
     this.settingsSub = this.settingsService.settings$.subscribe(settings => {
       this.car.updateSpecs(settings);
       this.carColor = this.settingsService.getActivePresetColor();
       this.updateRacingLine();
-      this.drawAll();
+      this.requestRedraw();
     });
 
     this.aiStatsSub = this.aiDrivingService.stats$.subscribe(stats => {
       this.aiStats = stats;
-      this.drawAll();
+      this.requestRedraw();
     });
 
     this.aiAgentsSub = this.aiDrivingService.agents$.subscribe(agents => {
       this.trainingAgents = agents;
-      this.drawAll();
+      this.requestRedraw();
     });
 
     this.historyEntrySub = this.aiDrivingService.selectedHistoryEntry$.subscribe(entry => {
@@ -124,7 +127,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.racingLine = entry.trajectory;
       this.estimatedLapTime = entry.bestLapTime;
       this.useOptimizedLine = false;
-      this.drawAll();
+      this.requestRedraw();
     });
 
     this.lastTime = performance.now();
@@ -163,7 +166,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.camera.offsetX = screenX - wx * this.camera.scale;
     this.camera.offsetY = screenY - wy * this.camera.scale;
     this.zoomLevel = Math.round(this.camera.scale * 100);
-    this.drawAll();
+    this.requestRedraw();
   }
 
   zoomIn() {
@@ -179,7 +182,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   resetZoom() {
     this.camera = { scale: 1, offsetX: 0, offsetY: 0 };
     this.zoomLevel = 100;
-    this.drawAll();
+    this.requestRedraw();
   }
 
   fitTrackToView() {
@@ -242,7 +245,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const dy = event.clientY - this.panStart.y;
     this.camera.offsetX = this.cameraStart.offsetX + dx;
     this.camera.offsetY = this.cameraStart.offsetY + dy;
-    this.drawAll();
+    this.requestRedraw();
   }
 
   onCanvasMouseUp() {
@@ -436,7 +439,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   private onTrackChanged() {
     this.updateRacingLine();
-    this.drawAll();
+    this.requestRedraw();
   }
 
   // ---------- Builders & Geometry ----------
@@ -531,13 +534,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   toggleRacingLine() {
     this.showRacingLine = !this.showRacingLine;
-    this.drawAll();
+    this.requestRedraw();
   }
 
   toggleOptimizedLine() {
     this.useOptimizedLine = !this.useOptimizedLine;
     this.updateRacingLine();
-    this.drawAll();
+    this.requestRedraw();
   }
 
   // ---------- Drawing ----------
@@ -785,7 +788,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.estimatedLapTime = best.state.lapTime;
       this.useOptimizedLine = false;
     }
-    this.drawAll();
+    this.requestRedraw();
   }
 
   stopAITraining() {
@@ -797,12 +800,12 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.racingLine = [];
     this.estimatedLapTime = 0;
     this.car.resetCar();
-    this.drawAll();
+    this.requestRedraw();
   }
 
   setTurnDirection(turnRight: boolean) {
     this.previewTurnRight = turnRight;
-    this.drawAll();
+    this.requestRedraw();
   }
 
   toggleTurnDirection() {
@@ -855,10 +858,21 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       });
   }
 
+  /** Marks the canvas dirty; the next animation frame paints it at most once. */
+  private requestRedraw() {
+    this.needsRedraw = true;
+  }
+
   private animate(timestamp: number) {
-    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.033);
     this.lastTime = timestamp;
-    this.drawAll();
+    // Only paint when something actually changed. This previously redrew every frame regardless,
+    // so an idle canvas repainted 60x a second, and during training those repaints competed with
+    // the simulation for the main thread. Coalescing also collapses the several redraw requests
+    // a single generation tick fires into one paint.
+    if (this.needsRedraw) {
+      this.needsRedraw = false;
+      this.drawAll();
+    }
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
   }
 
@@ -866,6 +880,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   get segmentCount(): number { return Math.max(0, this.segments.length - 1); }
   get isTraining(): boolean { return this.aiStats.active; }
   get trainingLabel(): string { return this.isTraining ? 'Training AI...' : 'Train AI'; }
+  get activeCarModel(): string { return this.settingsService.getSettings().name; }
 
   get trackLength(): string {
     if (this.racingLine.length < 2) return '0 m';

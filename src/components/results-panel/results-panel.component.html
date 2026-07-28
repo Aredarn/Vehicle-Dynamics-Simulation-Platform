@@ -15,6 +15,7 @@
             <strong>{{ run.label }}</strong>
             <div class="run-meta">
               <span>{{ run.generationCount }} gens</span>
+              <span>{{ run.bestProgress.toFixed(0) }}% track</span>
               <span>Best {{ run.bestLapTime.toFixed(1) }}s</span>
               <span>Fitness {{ run.bestFitness.toFixed(1) }}</span>
             </div>
@@ -38,9 +39,9 @@
               <strong>{{ entry.bestLapTime.toFixed(1) }}s</strong>
             </div>
             <div class="history-item__meta">
+              <span>Progress: {{ entry.bestProgress.toFixed(0) }}%</span>
               <span>Fitness: {{ entry.bestFitness.toFixed(1) }}</span>
               <span>Avg: {{ entry.averageFitness.toFixed(1) }}</span>
-              <span>Alive: {{ entry.aliveCount }}</span>
             </div>
           </button>
         </div>

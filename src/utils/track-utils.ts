@@ -99,6 +99,14 @@ function signedLateralOffset(point: { x: number; y: number }, p0: RacingLinePoin
   return cross / length;
 }
 
+/**
+ * Distance along `heading` until the ray leaves the track, resolved to within `step`.
+ *
+ * Walks in coarse strides and then bisects the straddling interval, rather than sampling every
+ * `step` metres. This is the hottest path in training — five rays per car per simulation step,
+ * each previously up to ~90 whole-track point tests — and the coarse/refine split reaches the
+ * same resolution in roughly a quarter of the tests.
+ */
 export function rayDistanceToTrackEdge(
   origin: { x: number; y: number },
   heading: number,
@@ -107,15 +115,28 @@ export function rayDistanceToTrackEdge(
   step: number,
   radius: number
 ) {
-  let dist = 0;
-  while (dist <= maxDistance) {
-    const x = origin.x + Math.cos(heading) * dist;
-    const y = origin.y + Math.sin(heading) * dist;
-    if (!isPointOnTrack({ x, y }, segments, radius)) {
-      return dist;
+  const dx = Math.cos(heading);
+  const dy = Math.sin(heading);
+  const offTrackAt = (dist: number) =>
+    !isPointOnTrack({ x: origin.x + dx * dist, y: origin.y + dy * dist }, segments, radius);
+
+  const coarse = Math.max(step, 2);
+  let lastOnTrack = 0;
+
+  for (let dist = 0; dist <= maxDistance; dist += coarse) {
+    if (offTrackAt(dist)) {
+      let lo = lastOnTrack;
+      let hi = dist;
+      while (hi - lo > step) {
+        const mid = (lo + hi) / 2;
+        if (offTrackAt(mid)) hi = mid;
+        else lo = mid;
+      }
+      return hi;
     }
-    dist += step;
+    lastOnTrack = dist;
   }
+
   return maxDistance;
 }
 
@@ -129,13 +150,42 @@ export function computeCurvature(line: RacingLinePoint[], index: number): number
   return headingChange / Math.max(dist, 0.001);
 }
 
-const TRACK_HALF_WIDTH = 5; // meters from centerline to wall
+export const TRACK_HALF_WIDTH = 5; // meters from centerline to wall
 
-export function isPointOnTrack(point: { x: number; y: number }, segments: Segment[], radius: number) {
-  return segments.some(seg => isPointInsideSegment(point, seg, radius));
+export function isPointOnTrack(
+  point: { x: number; y: number },
+  segments: Segment[],
+  radius: number,
+  tolerance = 0
+) {
+  return distanceBeyondTrackEdge(point, segments, radius) <= tolerance;
 }
 
-function isPointInsideSegment(point: { x: number; y: number }, seg: Segment, radius: number) {
+/**
+ * How far `point` is past the nearest segment's track edge, in meters. 0 (or less) means on track.
+ * Used to model off-track grip loss as a continuous zone rather than a binary in/out check.
+ */
+export function distanceBeyondTrackEdge(
+  point: { x: number; y: number },
+  segments: Segment[],
+  radius: number
+): number {
+  let minExcess = Infinity;
+  for (const seg of segments) {
+    const excess = segmentEdgeExcess(point, seg, radius);
+    if (excess < minExcess) minExcess = excess;
+    if (minExcess <= 0) return 0;
+  }
+  // A point outside every segment's span/arc entirely (not just past the edge of one) is
+  // definitely off track — use a sentinel well past any grip-zone/death threshold.
+  return Number.isFinite(minExcess) ? minExcess : 1000;
+}
+
+function segmentEdgeExcess(
+  point: { x: number; y: number },
+  seg: Segment,
+  radius: number
+): number {
   const effectiveHalfWidth = Math.max(0, TRACK_HALF_WIDTH - radius);
   if (seg.type === 'start' || seg.type === 'straight') {
     const sx = seg.position.x;
@@ -146,9 +196,9 @@ function isPointInsideSegment(point: { x: number; y: number }, seg: Segment, rad
     const px = point.x - sx;
     const py = point.y - sy;
     const proj = px * dx + py * dy;
-    if (proj < 0 || proj > length) return false;
+    if (proj < 0 || proj > length) return Infinity;
     const lateral = Math.abs(px * dy - py * dx);
-    return lateral <= effectiveHalfWidth;
+    return lateral - effectiveHalfWidth;
   }
 
   const angleRad = (seg.angle ?? 90) * Math.PI / 180;
@@ -158,13 +208,13 @@ function isPointInsideSegment(point: { x: number; y: number }, seg: Segment, rad
   const cy = seg.position.y + turnDirection * R * Math.cos(seg.heading);
   const pointR = Math.hypot(point.x - cx, point.y - cy);
   const radialDelta = Math.abs(pointR - R);
-  if (radialDelta > effectiveHalfWidth) return false;
 
   const startAngle = Math.atan2(seg.position.y - cy, seg.position.x - cx);
   const targetAngle = Math.atan2(point.y - cy, point.x - cx);
   const endAngle = startAngle + angleRad;
   const direction = Math.sign(angleRad) || 1;
-  return isAngleBetween(targetAngle, startAngle, endAngle, direction);
+  if (!isAngleBetween(targetAngle, startAngle, endAngle, direction)) return Infinity;
+  return radialDelta - effectiveHalfWidth;
 }
 
 function isAngleBetween(angle: number, start: number, end: number, direction: number) {
