@@ -1,0 +1,119 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.models {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.models__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+  margin-bottom: var(--sp-3);
+}
+
+.models__import {
+  position: relative;
+  cursor: pointer;
+}
+
+.models__notice {
+  flex-shrink: 0;
+  margin-bottom: var(--sp-3);
+
+  &--error { color: var(--danger); }
+}
+
+.models__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.model {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 8px var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  transition: background-color var(--transition), border-color var(--transition);
+
+  &:hover { background: var(--surface-2); }
+
+  &.is-selected {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+  }
+
+  &__select {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    cursor: pointer;
+
+    input { position: absolute; opacity: 0; width: 0; height: 0; }
+  }
+
+  &__swatch {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid;
+    border-radius: 3px;
+    transition: background-color var(--transition);
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  &__name {
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__meta {
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__result {
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+
+    strong { color: var(--accent); font-weight: 600; }
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    opacity: 0;
+    transition: opacity var(--transition);
+  }
+
+  &:hover &__actions,
+  &.is-selected &__actions { opacity: 1; }
+}

@@ -2,8 +2,9 @@ import { RacingLinePoint } from '../interfaces/car-state';
 import { Segment } from './Track';
 import {
   normalizeAngle,
-  buildTrackPath,
+  getTrackPathCached,
   closestPointOnPath,
+  closestPointOnPathNear,
   rayDistanceToTrackEdge,
   distanceBeyondTrackEdge,
 } from '../utils/track-utils';
@@ -73,6 +74,9 @@ export class CarAgent {
   private edgeSum = 0;
   private backwardSum = 0;
   private qualitySamples = 0;
+  /** Rolling hint for the local path projection search. */
+  private projectionIndex = 0;
+  private lastProjection: ReturnType<typeof closestPointOnPathNear> | null = null;
 
   constructor(public genome: AgentGenome, private settings: CarSettings) {
     this.driving = getDrivingCharacteristics(settings);
@@ -83,7 +87,7 @@ export class CarAgent {
   reset(segments: Segment[], optimalLine: RacingLinePoint[] = [], optimalLapTime = 0) {
     this.driving = getDrivingCharacteristics(this.settings);
     this.trackSegments = segments;
-    this.trackPath = buildTrackPath(segments, 2);
+    this.trackPath = getTrackPathCached(segments, 2);
     this.trackLength = this.trackPath.length ? this.trackPath[this.trackPath.length - 1].s : 0;
     this.optimalLine = optimalLine;
     this.optimalLapTime = optimalLapTime;
@@ -103,6 +107,8 @@ export class CarAgent {
     this.edgeSum = 0;
     this.backwardSum = 0;
     this.qualitySamples = 0;
+    this.projectionIndex = 0;
+    this.lastProjection = null;
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
     this.state = {
@@ -130,7 +136,11 @@ export class CarAgent {
     if (!this.state.alive || this.completedLap || !this.trackSegments.length) return;
 
     const sensors = this.computeSensors();
-    const closest = closestPointOnPath({ x: this.state.x, y: this.state.y }, this.trackPath);
+    // The car has not moved since the previous step ended, so that step's projection is still
+    // valid here — reusing it halves the number of path projections per step.
+    const closest = this.lastProjection
+      ?? closestPointOnPathNear({ x: this.state.x, y: this.state.y }, this.trackPath, this.projectionIndex);
+    this.projectionIndex = closest.index;
     const speedNorm = this.state.speed / Math.max(this.maxSpeed, 0.1);
     const offsetNorm = this.clamp(closest.offset / 8, -1, 1);
     const speedTargetsAhead = this.computeLookaheadSpeedTargets(closest.s);
@@ -179,7 +189,14 @@ export class CarAgent {
     this.state.lapTime += dt;
     this.state.distance += Math.abs(this.state.speed * dt);
 
-    const closestAfter = closestPointOnPath({ x: this.state.x, y: this.state.y }, this.trackPath);
+    const closestAfter = closestPointOnPathNear(
+      { x: this.state.x, y: this.state.y },
+      this.trackPath,
+      this.projectionIndex
+    );
+    this.projectionIndex = closestAfter.index;
+    // Carried into the next step, where this position is the starting position.
+    this.lastProjection = closestAfter;
     // Subsampled: one point per step is far finer than anything the rendered line needs, and
     // every generation's best trajectory is retained in the run history — at the longer budgets
     // a large track requires that grew into hundreds of thousands of retained points.

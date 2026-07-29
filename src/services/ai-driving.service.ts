@@ -3,6 +3,7 @@ import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome, AI_INPUT_COUNT, AI_HIDDEN_SIZE } from '../models/CarAgent';
 import { Segment } from '../models/Track';
+import { RacingLinePoint } from '../interfaces/car-state';
 import { buildTrackPath, getTrackLength } from '../utils/track-utils';
 import { calculatePerformance } from '../utils/car-physics';
 import { weightCount, outputBiasIndex } from '../utils/neural-policy';
@@ -12,6 +13,15 @@ export interface AILearningConfig {
   populationSize: number;
   generations: number;
   mutationRate: number;
+  /** Start the population from a previously trained model instead of random weights. */
+  seedWeights?: number[] | null;
+}
+
+export interface ModelRunResult {
+  trajectory: RacingLinePoint[];
+  lapTime: number;
+  progress: number;
+  completed: boolean;
 }
 
 export interface AIGenerationStats {
@@ -34,6 +44,8 @@ export interface AITrainingHistoryEntry {
   aliveCount: number;
   averageFitness: number;
   trajectory: Array<{ x: number; y: number; heading: number; s: number }>;
+  /** The generation's best genome, kept small (~220 floats) so every checkpoint is extractable as a model. */
+  weights: number[];
 }
 
 export interface AITrainingRun {
@@ -48,6 +60,10 @@ export interface AITrainingRun {
   aliveCount: number;
   averageFitness: number;
   entries: AITrainingHistoryEntry[];
+  /** Provenance for anything extracted from this run as a model. */
+  carSettings: CarSettings;
+  trackLabel: string;
+  trackLength: number;
 }
 
 const GENOME_WEIGHT_COUNT = weightCount(AI_INPUT_COUNT, AI_HIDDEN_SIZE);
@@ -123,7 +139,8 @@ export class AIDrivingService {
   async train(
     settings: CarSettings,
     segments: Segment[],
-    config: AILearningConfig
+    config: AILearningConfig,
+    trackLabel = 'Custom Track'
   ): Promise<{ bestAgents: CarAgent[]; bestGenome: AgentGenome | null }> {
     // A second concurrent run would interleave its generations into the same stats/population
     // streams as the first, making the reported progress of both incoherent.
@@ -137,28 +154,6 @@ export class AIDrivingService {
     const populationSize = Math.max(4, config.populationSize);
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
-
-    let population: AgentGenome[] = Array.from({ length: populationSize }, () => this.createGenome());
-    let bestGenome: AgentGenome | null = null;
-
-    const existingRuns = this.runsSubject.value;
-    const runLabel = `${settings.name} · Run ${existingRuns.length + 1}`;
-    let currentRun: AITrainingRun = {
-      id: crypto.randomUUID(),
-      label: runLabel,
-      startedAt: Date.now(),
-      completedAt: null,
-      generationCount: 0,
-      bestFitness: 0,
-      bestLapTime: 0,
-      bestProgress: 0,
-      aliveCount: 0,
-      averageFitness: 0,
-      entries: [],
-    };
-    this.runsSubject.next([...existingRuns, currentRun]);
-
-    let bestAgentSnapshot: { genome: AgentGenome; trajectory: CarAgent['trajectory']; state: CarAgent['state'] } | null = null;
 
     // Freeze the layout for the whole run. The caller hands us the live array the track builder
     // mutates in place (adding a piece or undoing one), and every generation re-reads it — so an
@@ -181,6 +176,36 @@ export class AIDrivingService {
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
     const simulationSteps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
 
+    // Seeding from a saved model starts the population at (and around) an already-competent
+    // driver instead of from scratch, so training the same model on a different track adapts it
+    // rather than relearning it — this is what makes "teach on different tracks" meaningfully
+    // faster than a fresh run.
+    let population: AgentGenome[] = config.seedWeights && config.seedWeights.length === GENOME_WEIGHT_COUNT
+      ? this.buildSeededPopulation(config.seedWeights, populationSize)
+      : Array.from({ length: populationSize }, () => this.createGenome());
+    let bestGenome: AgentGenome | null = null;
+
+    const existingRuns = this.runsSubject.value;
+    const runLabel = `${settings.name} · Run ${existingRuns.length + 1}`;
+    let currentRun: AITrainingRun = {
+      id: crypto.randomUUID(),
+      label: runLabel,
+      startedAt: Date.now(),
+      completedAt: null,
+      generationCount: 0,
+      bestFitness: 0,
+      bestLapTime: 0,
+      bestProgress: 0,
+      aliveCount: 0,
+      averageFitness: 0,
+      entries: [],
+      carSettings: { ...settings },
+      trackLabel,
+      trackLength,
+    };
+    this.runsSubject.next([...existingRuns, currentRun]);
+
+    let bestAgentSnapshot: { genome: AgentGenome; trajectory: CarAgent['trajectory']; state: CarAgent['state'] } | null = null;
     let bestFitnessEver = -Infinity;
     let stagnationCounter = 0;
     // Carried forward every generation so the best genome found can never be lost.
@@ -259,6 +284,7 @@ export class AIDrivingService {
         aliveCount,
         averageFitness: roundedAverageFitness,
         trajectory: bestAgentSnapshot?.trajectory ?? [],
+        weights: bestAgentSnapshot ? [...bestAgentSnapshot.genome.weights] : [],
       };
 
       currentRun = {
@@ -309,6 +335,41 @@ export class AIDrivingService {
   }
 
   /**
+   * Drives one frozen genome (no evolution) around a track to completion or a timeout, for the
+   * model comparer. Deliberately independent of `train()`'s stats/population streams — those
+   * describe a live GA run, and interleaving a comparison pass into them while training is
+   * active would corrupt what's reported for both. It also doesn't need the time-sliced yielding
+   * `simulateAgents` uses for large populations; one agent per call is cheap enough to just run
+   * to completion, yielding occasionally so a long track doesn't block the UI.
+   */
+  async runGenomeOnTrack(weights: number[], settings: CarSettings, segments: Segment[]): Promise<ModelRunResult> {
+    const track: Segment[] = segments.map(segment => ({ ...segment, position: { ...segment.position } }));
+    const centerline = buildTrackPath(track, 2);
+    const trackLength = getTrackLength(centerline);
+    const perf = calculatePerformance(settings);
+    const topSpeedMs = Math.max(8, perf.topSpeed / 3.6);
+    const dt = 1 / 30;
+
+    const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
+    const steps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
+
+    const agent = new CarAgent(this.spawnGenome([...weights]), settings);
+    agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
+
+    for (let step = 0; step < steps && agent.state.alive; step++) {
+      agent.update(dt);
+      if (step % 500 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    return {
+      trajectory: agent.trajectory,
+      lapTime: agent.completedLap ? agent.state.lapTime : 0,
+      progress: Math.round((agent.genome.progressRatio ?? 0) * 1000) / 10,
+      completed: agent.completedLap,
+    };
+  }
+
+  /**
    * Finishers first, then straight fitness. Ranking on progressRatio ahead of fitness meant an
    * agent that got a centimetre further always beat a cleaner, faster one, so no amount of
    * reward shaping could express a preference for a better racing line. Progress still leads
@@ -355,29 +416,71 @@ export class AIDrivingService {
   }
 
   private async simulateAgents(agents: CarAgent[], steps: number, dt: number) {
-    // Each yield costs a macrotask (~4ms floor), so this dominates wall-clock time on the long
-    // budgets a large track needs. 16 still animates smoothly at 30Hz simulation rate.
-    const renderEvery = 16;
+    // Yielding on a step count breaks down as the population grows: with a thousand cars a
+    // single step is tens of milliseconds, so any fixed number of steps between yields locks
+    // the main thread for hundreds of milliseconds and the UI drops to a few frames a second.
+    //
+    // Budget by elapsed time instead, and — because agents never interact — advance a step in
+    // slices, yielding part-way through when the budget is spent. Results are identical; only
+    // the interleaving changes.
+    const FRAME_BUDGET_MS = 8;
+    const SNAPSHOT_INTERVAL_MS = 60;
+    const SLICE = 64;
+
+    let sliceStart = performance.now();
+    let lastSnapshot = 0;
+
     for (let step = 0; step < steps; step++) {
       if (this.stopRequested) break;
 
       let anyActive = false;
-      agents.forEach(agent => {
-        if (agent.state.alive) {
-          agent.update(dt);
-          anyActive = true;
+
+      for (let i = 0; i < agents.length;) {
+        const end = Math.min(agents.length, i + SLICE);
+        for (; i < end; i++) {
+          const agent = agents[i];
+          if (agent.state.alive) {
+            agent.update(dt);
+            anyActive = true;
+          }
         }
-      });
+
+        if (performance.now() - sliceStart >= FRAME_BUDGET_MS) {
+          // Repainting the field is far cheaper than simulating it, but each push runs change
+          // detection, so cap it well below the yield rate.
+          const now = performance.now();
+          if (now - lastSnapshot >= SNAPSHOT_INTERVAL_MS) {
+            this.populationSubject.next(agents);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
+          sliceStart = performance.now();
+        }
+      }
 
       // Keep running the full budget so surviving agents have time to finish long tracks.
       if (!anyActive) break;
-
-      if (step % renderEvery === 0) {
-        this.populationSubject.next(agents);
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
     }
+
     this.populationSubject.next(agents);
+  }
+
+  /**
+   * Starts a run from a previously trained model instead of random weights: the seed itself
+   * plus mutated variants of it at a few step sizes, rather than `populationSize` independent
+   * random points. The new track's evolutionary pressure then adapts an already-competent
+   * driver instead of relearning one from scratch.
+   */
+  private buildSeededPopulation(seedWeights: number[], size: number): AgentGenome[] {
+    const population: AgentGenome[] = [this.spawnGenome([...seedWeights])];
+    const scales = [0.15, 0.3, 0.6, 1];
+    for (let i = 1; i < size; i++) {
+      const scale = scales[i % scales.length];
+      population.push(this.spawnGenome(
+        seedWeights.map(w => this.mutateWeight(w, 0.5, BASE_MUTATION_SIGMA * scale))
+      ));
+    }
+    return population;
   }
 
   private evolvePopulation(population: AgentGenome[], mutationRate: number, stagnationLevel = 0): AgentGenome[] {

@@ -1,159 +1,250 @@
-<div class="track-builder">
-  <div class="controls-panel">
-    <div class="panel-header">
-      <div class="panel-header__icon">🏁</div>
-      <div>
-        <div class="panel-header__title">Track Builder</div>
-        <div class="panel-header__subtitle">Design your circuit</div>
-      </div>
-    </div>
+<div class="workspace">
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <nav class="tabs" role="tablist" aria-label="Workspace sections">
+      <button
+        *ngFor="let tab of tabs"
+        type="button"
+        role="tab"
+        class="tabs__tab"
+        [class.is-active]="activeTab === tab.id"
+        [attr.aria-selected]="activeTab === tab.id"
+        (click)="selectTab(tab.id)"
+      >
+        <app-icon [name]="tab.icon" [size]="15"></app-icon>
+        <span>{{ tab.label }}</span>
+      </button>
+    </nav>
 
-    <div class="control-group">
-      <h4>Track Pieces</h4>
-      <div class="palette">
-        <div
-          *ngFor="let piece of palette"
-          class="palette-piece"
-          draggable="true"
-          (dragstart)="onDragStart($event, piece)"
-          (dragend)="onDragEnd()"
-          [title]="piece.label"
-        >
-          <span class="palette-piece__icon">{{ piece.icon }}</span>
-          <span class="palette-piece__body">
-            <span class="palette-piece__title">{{ piece.label }}</span>
-            <span class="palette-piece__meta">{{ piece.meta }}</span>
-          </span>
-        </div>
-      </div>
-      <div class="track-stats">
-        <span>{{ segmentCount }} pieces</span>
-        <span>{{ trackLength }}</span>
-      </div>
-      <div class="turn-direction-switch">
-        <span>Next corner</span>
-        <div class="segmented-control">
-          <button type="button" class="segmented-control__btn" [class.active]="!previewTurnRight" (click)="setTurnDirection(false)">
-            Left
+    <div class="sidebar__body">
+      <!-- Car -->
+      <app-car-settings *ngIf="activeTab === 'car'"></app-car-settings>
+
+      <!-- Track -->
+      <ng-container *ngIf="activeTab === 'track'">
+        <section class="section">
+          <h3 class="section__title">
+            <span>Track Pieces</span>
+            <span class="num section__meta">{{ segmentCount }} · {{ trackLength }}</span>
+          </h3>
+
+          <div class="palette">
+            <div
+              *ngFor="let piece of palette"
+              class="palette__item"
+              draggable="true"
+              (dragstart)="onDragStart($event, piece)"
+              (dragend)="onDragEnd()"
+              [title]="'Drag ' + piece.label + ' onto the canvas'"
+            >
+              <app-icon [name]="piece.icon" [size]="18"></app-icon>
+              <span class="palette__text">
+                <span class="palette__label">{{ piece.label }}</span>
+                <span class="palette__meta num">{{ piece.meta }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <span class="field-row__label">Next corner</span>
+            <div class="segmented">
+              <button type="button" class="segmented__btn" [class.is-active]="!previewTurnRight" (click)="setTurnDirection(false)">Left</button>
+              <button type="button" class="segmented__btn" [class.is-active]="previewTurnRight" (click)="setTurnDirection(true)">Right</button>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn--ghost" (click)="undoLastPiece()" [disabled]="segmentCount === 0">
+              <app-icon name="undo" [size]="14"></app-icon> Undo
+            </button>
+            <button class="btn btn--ghost" (click)="exportTrack()" [disabled]="segmentCount === 0">
+              <app-icon name="download" [size]="14"></app-icon> Export
+            </button>
+            <button class="btn btn--danger btn--icon" (click)="clearTrack()" [disabled]="segmentCount === 0" title="Clear track">
+              <app-icon name="trash" [size]="14"></app-icon>
+            </button>
+          </div>
+        </section>
+
+        <section class="section">
+          <h3 class="section__title">Presets</h3>
+          <button
+            *ngFor="let preset of trackPresets"
+            class="preset"
+            type="button"
+            (click)="loadTrackPreset(preset.key)"
+          >
+            <span class="preset__name">{{ preset.label }}</span>
+            <span class="preset__desc">{{ preset.description }}</span>
           </button>
-          <button type="button" class="segmented-control__btn" [class.active]="previewTurnRight" (click)="setTurnDirection(true)">
-            Right
-          </button>
+        </section>
+
+        <section class="section">
+          <h3 class="section__title">Display</h3>
+          <label class="toggle">
+            <input type="checkbox" [checked]="showRacingLine" (change)="toggleRacingLine()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Show racing line</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" [checked]="useOptimizedLine" (change)="toggleOptimizedLine()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Use optimised line</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" [checked]="showAgents" (change)="toggleShowAgents()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Show cars on track</span>
+          </label>
+        </section>
+      </ng-container>
+
+      <!-- Training -->
+      <ng-container *ngIf="activeTab === 'training'">
+        <section class="section">
+          <h3 class="section__title">
+            <span>Parameters</span>
+            <span class="section__meta">{{ activeCarModel }}</span>
+          </h3>
+
+          <div class="seed-banner" *ngIf="seedModel">
+            <app-icon name="cpu" [size]="13"></app-icon>
+            <span class="seed-banner__text">Starting from <strong>{{ seedModel.name }}</strong></span>
+            <button type="button" class="btn btn--icon btn--sm" (click)="clearSeedModel()" [disabled]="isTraining" title="Start fresh instead">
+              <app-icon name="trash" [size]="12"></app-icon>
+            </button>
+          </div>
+
+          <div class="param">
+            <label for="popSize">Population</label>
+            <input id="popSize" type="number" min="4" [(ngModel)]="aiConfig.populationSize" [disabled]="isTraining" />
+          </div>
+          <div class="param">
+            <label for="genCount">Generations</label>
+            <input id="genCount" type="number" min="1" [(ngModel)]="aiConfig.generations" [disabled]="isTraining" />
+          </div>
+          <div class="param">
+            <label for="mutRate">Mutation rate</label>
+            <input id="mutRate" type="number" min="0" max="1" step="0.01" [(ngModel)]="aiConfig.mutationRate" [disabled]="isTraining" />
+          </div>
+
+          <div class="btn-row btn-row--stack">
+            <button class="btn btn--block" (click)="startAITraining()" [disabled]="isTraining">
+              <app-icon name="play" [size]="14"></app-icon> {{ trainingLabel }}
+            </button>
+            <button class="btn btn--ghost btn--block" (click)="stopAITraining()" [disabled]="!isTraining">
+              <app-icon name="stop" [size]="14"></app-icon> Stop
+            </button>
+          </div>
+        </section>
+
+        <section class="section" *ngIf="aiStats.generation > 0">
+          <h3 class="section__title">
+            <span>Live</span>
+            <span class="status" [class.is-live]="isTraining">{{ isTraining ? 'Running' : 'Idle' }}</span>
+          </h3>
+
+          <div class="progress">
+            <div class="progress__bar" [style.width.%]="(aiStats.generation / aiConfig.generations) * 100"></div>
+          </div>
+          <p class="hint progress__caption">
+            Generation <span class="num">{{ aiStats.generation }}</span> of
+            <span class="num">{{ aiConfig.generations }}</span>
+          </p>
+
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat__label">Best lap</div>
+              <div class="stat__value">{{ aiStats.bestLapTime ? aiStats.bestLapTime.toFixed(2) : '—' }}<span class="stat__unit" *ngIf="aiStats.bestLapTime">s</span></div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Progress</div>
+              <div class="stat__value">{{ aiStats.bestProgress.toFixed(1) }}<span class="stat__unit">%</span></div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Alive</div>
+              <div class="stat__value">{{ aiStats.aliveCount }}<span class="stat__unit">/{{ aiConfig.populationSize }}</span></div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Best fitness</div>
+              <div class="stat__value">{{ aiStats.bestFitness.toFixed(0) }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Avg fitness</div>
+              <div class="stat__value">{{ aiStats.averageFitness.toFixed(0) }}</div>
+            </div>
+          </div>
+        </section>
+      </ng-container>
+    </div>
+  </aside>
+
+  <!-- ── Canvas + telemetry ──────────────────────────────────── -->
+  <div class="stage">
+    <div class="stage__canvas">
+      <canvas
+        #canvas
+        (dragover)="onDragOver($event)"
+        (dragenter)="onDragEnter($event)"
+        (drop)="onDrop($event)"
+        (wheel)="onWheel($event)"
+        (mousedown)="onCanvasMouseDown($event)"
+        (mousemove)="onCanvasMouseMove($event)"
+        (mouseup)="onCanvasMouseUp()"
+        (contextmenu)="$event.preventDefault()"
+      >
+        Your browser does not support the canvas element.
+      </canvas>
+
+      <div class="viewport-tools">
+        <button class="btn btn--icon viewport-tools__btn" (click)="zoomOut()" title="Zoom out">
+          <app-icon name="minus" [size]="15"></app-icon>
+        </button>
+        <span class="viewport-tools__zoom num">{{ zoomLevel }}%</span>
+        <button class="btn btn--icon viewport-tools__btn" (click)="zoomIn()" title="Zoom in">
+          <app-icon name="plus" [size]="15"></app-icon>
+        </button>
+        <span class="viewport-tools__sep"></span>
+        <button class="btn btn--icon viewport-tools__btn" (click)="fitTrackToView()" title="Fit to track">
+          <app-icon name="fit" [size]="15"></app-icon>
+        </button>
+        <button class="btn btn--icon viewport-tools__btn" (click)="resetZoom()" title="Reset view">
+          <app-icon name="reset" [size]="15"></app-icon>
+        </button>
+      </div>
+
+      <p class="viewport-hint" *ngIf="segmentCount === 0">
+        Drag a <strong>Start</strong> piece from the Track panel onto the canvas to begin
+      </p>
+      <p class="viewport-hint viewport-hint--corner" *ngIf="segmentCount > 0">
+        Scroll to zoom · Alt + drag to pan
+      </p>
+    </div>
+
+    <section class="telemetry" [class.is-collapsed]="!telemetryOpen">
+      <header class="telemetry__bar">
+        <button type="button" class="telemetry__toggle" (click)="toggleTelemetry()" [attr.aria-expanded]="telemetryOpen">
+          <app-icon [name]="telemetryOpen ? 'chevronDown' : 'chevronRight'" [size]="14"></app-icon>
+          <app-icon [name]="telemetryView === 'training' ? 'chart' : 'layers'" [size]="15"></app-icon>
+          <span>{{ telemetryView === 'training' ? 'Telemetry' : 'Models' }}</span>
+        </button>
+
+        <div class="segmented telemetry__view-switch" role="group" aria-label="Telemetry view">
+          <button type="button" class="segmented__btn" [class.is-active]="telemetryView === 'training'" (click)="setTelemetryView('training')">Training</button>
+          <button type="button" class="segmented__btn" [class.is-active]="telemetryView === 'models'" (click)="setTelemetryView('models')">Models</button>
         </div>
+      </header>
+      <div class="telemetry__body" *ngIf="telemetryOpen">
+        <app-results-panel *ngIf="telemetryView === 'training'"></app-results-panel>
+        <app-model-compare
+          *ngIf="telemetryView === 'models'"
+          [trackReady]="segmentCount > 0"
+          [running]="comparisonRunning"
+          [results]="comparisonResults"
+          (runSelected)="onRunModelComparison($event)"
+          (useAsSeed)="onUseModelAsSeed($event)"
+        ></app-model-compare>
       </div>
-      <div class="button-group compact">
-        <button class="btn btn--ghost" (click)="exportTrack()">
-          ⤓ Export Track
-        </button>
-        <button class="btn btn--ghost" (click)="undoLastPiece()" [disabled]="segmentCount === 0">
-          ↩ Undo
-        </button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h4>F1 Presets</h4>
-      <div class="preset-grid">
-        <button
-          *ngFor="let preset of trackPresets"
-          class="preset-btn"
-          type="button"
-          (click)="loadTrackPreset(preset.key)"
-        >
-          <strong>{{ preset.label }}</strong>
-          <span>{{ preset.description }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h4>View</h4>
-      <div class="zoom-controls">
-        <button class="btn btn--ghost zoom-btn" (click)="zoomOut()">−</button>
-        <span class="zoom-label">{{ zoomLevel }}%</span>
-        <button class="btn btn--ghost zoom-btn" (click)="zoomIn()">+</button>
-      </div>
-      <div class="button-group">
-        <button class="btn btn--ghost" (click)="fitTrackToView()">Fit to Track</button>
-        <button class="btn btn--ghost" (click)="resetZoom()">Reset View</button>
-      </div>
-      <p class="hint">Scroll to zoom · Alt+drag to pan</p>
-    </div>
-
-    <div class="control-group">
-      <h4>AI Training</h4>
-      <p class="hint" *ngIf="activeCarModel">Training car: <strong>{{ activeCarModel }}</strong></p>
-      <div class="settings-grid">
-        <label>
-          Population
-          <input type="number" min="4" [(ngModel)]="aiConfig.populationSize" />
-        </label>
-        <label>
-          Generations
-          <input type="number" min="1" [(ngModel)]="aiConfig.generations" />
-        </label>
-        <label>
-          Mutation
-          <input type="number" min="0" max="1" step="0.01" [(ngModel)]="aiConfig.mutationRate" />
-        </label>
-      </div>
-      <div class="button-group">
-        <button class="btn" (click)="startAITraining()" [disabled]="isTraining">
-          {{ trainingLabel }}
-        </button>
-        <button class="btn btn--ghost" (click)="stopAITraining()" [disabled]="!isTraining">
-          ■ Stop Training
-        </button>
-      </div>
-      <div class="info-display" *ngIf="aiStats.generation > 0">
-        <p><strong>Gen:</strong> {{ aiStats.generation }} / {{ aiConfig.generations }}</p>
-        <p><strong>Best progress:</strong> {{ aiStats.bestProgress }}%</p>
-        <p><strong>Best lap:</strong> {{ aiStats.bestLapTime }}s</p>
-        <p><strong>Best fitness:</strong> {{ aiStats.bestFitness }}</p>
-        <p><strong>Alive:</strong> {{ aiStats.aliveCount }}</p>
-        <p><strong>Avg fitness:</strong> {{ aiStats.averageFitness }}</p>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h4>Display</h4>
-      <div class="button-group">
-        <button class="btn btn--ghost" (click)="toggleRacingLine()">
-          {{ showRacingLine ? 'Hide' : 'Show' }} Racing Line
-        </button>
-        <button class="btn btn--ghost" (click)="toggleOptimizedLine()">
-          {{ useOptimizedLine ? 'AI Line: On' : 'AI Line: Off' }}
-        </button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h4>How to Use</h4>
-      <div class="instructions">
-        <p>1. Drag "Start" piece to canvas first</p>
-        <p>2. Add track pieces — no limit, zoom out to see more</p>
-        <p>3. Scroll wheel to zoom, Alt+drag to pan</p>
-        <p>4. Pick a car model in the left panel</p>
-        <p>5. Enable AI Line for optimized speed profile</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="canvas-container">
-    <canvas
-      #canvas
-      width="1200"
-      height="800"
-      (dragover)="onDragOver($event)"
-      (dragenter)="onDragEnter($event)"
-      (drop)="onDrop($event)"
-      (wheel)="onWheel($event)"
-      (mousedown)="onCanvasMouseDown($event)"
-      (mousemove)="onCanvasMouseMove($event)"
-      (mouseup)="onCanvasMouseUp()"
-      (contextmenu)="$event.preventDefault()"
-    >
-      Your browser does not support the canvas element.
-    </canvas>
+    </section>
   </div>
 </div>

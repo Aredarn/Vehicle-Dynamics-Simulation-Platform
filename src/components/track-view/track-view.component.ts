@@ -5,10 +5,16 @@ import { Subscription } from 'rxjs';
 import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
 import { RacingLineOptimizerService } from '../../services/racing-line-optimizer.service';
 import { AIDrivingService, AIGenerationStats } from '../../services/ai-driving.service';
+import { ThemeService } from '../../services/theme.service';
+import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
+import { IconComponent } from '../icon/icon.component';
+import { CarSettingsComponent } from '../car-settings/car-settings.component';
+import { ResultsPanelComponent } from '../results-panel/results-panel.component';
+import { ModelCompareComponent, ModelComparisonResult } from '../model-compare/model-compare.component';
 
 const roadWidth = 30;
 const PX_PER_M = 3;
@@ -19,10 +25,28 @@ interface Camera {
   offsetY: number;
 }
 
+type SidebarTab = 'car' | 'track' | 'training';
+
+/** Canvas colours resolved from CSS custom properties so the track follows the theme. */
+interface CanvasTheme {
+  grid: string;
+  gridMajor: string;
+  road: string;
+  roadEdge: string;
+  centerline: string;
+  kerbA: string;
+  kerbB: string;
+  line: string;
+  lineAlt: string;
+  agent: string;
+  agentDead: string;
+  text: string;
+}
+
 @Component({
   selector: 'app-track-view',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, IconComponent, CarSettingsComponent, ResultsPanelComponent, ModelCompareComponent],
   templateUrl: './track-view.component.html',
   styleUrls: ['./track-view.component.scss']
 })
@@ -56,18 +80,28 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     private settingsService: CarSettingsService,
     private lineOptimizer: RacingLineOptimizerService,
     private aiDrivingService: AIDrivingService,
+    private themeService: ThemeService,
   ) {}
 
+  activeTab: SidebarTab = 'track';
+  telemetryOpen = true;
+
+  readonly tabs: Array<{ id: SidebarTab; label: string; icon: string }> = [
+    { id: 'car', label: 'Car', icon: 'car' },
+    { id: 'track', label: 'Track', icon: 'track' },
+    { id: 'training', label: 'Training', icon: 'cpu' },
+  ];
+
   palette = [
-    { label: 'Start', type: 'start' as PieceType, length: 50, icon: '🏁', meta: 'Launch zone' },
-    { label: 'Short Straight', type: 'straight' as PieceType, length: 20, icon: '⬛', meta: '20 m' },
-    { label: 'Medium Straight', type: 'straight' as PieceType, length: 50, icon: '⬛', meta: '50 m' },
-    { label: 'Long Straight', type: 'straight' as PieceType, length: 100, icon: '⬛', meta: '100 m' },
-    { label: 'Fast Sweep', type: 'curve30' as PieceType, radius: 80, angle: 30, icon: '↺', meta: '30°' },
-    { label: 'Medium Corner', type: 'curve45' as PieceType, radius: 70, angle: 45, icon: '↺', meta: '45°' },
-    { label: 'Technical Corner', type: 'curve60' as PieceType, radius: 65, angle: 60, icon: '↻', meta: '60°' },
-    { label: 'Hairpin', type: 'curve90' as PieceType, radius: 55, angle: 90, icon: '↻', meta: '90°' },
-    { label: 'Chicane', type: 'curve120' as PieceType, radius: 60, angle: 120, icon: '⤴', meta: '120°' },
+    { label: 'Start', type: 'start' as PieceType, length: 50, icon: 'pieceStart', meta: 'Launch zone' },
+    { label: 'Short Straight', type: 'straight' as PieceType, length: 20, icon: 'pieceStraight', meta: '20 m' },
+    { label: 'Medium Straight', type: 'straight' as PieceType, length: 50, icon: 'pieceStraight', meta: '50 m' },
+    { label: 'Long Straight', type: 'straight' as PieceType, length: 100, icon: 'pieceStraight', meta: '100 m' },
+    { label: 'Fast Sweep', type: 'curve30' as PieceType, radius: 80, angle: 30, icon: 'pieceCurveL', meta: '30°' },
+    { label: 'Medium Corner', type: 'curve45' as PieceType, radius: 70, angle: 45, icon: 'pieceCurveL', meta: '45°' },
+    { label: 'Technical Corner', type: 'curve60' as PieceType, radius: 65, angle: 60, icon: 'pieceCurveR', meta: '60°' },
+    { label: 'Hairpin', type: 'curve90' as PieceType, radius: 55, angle: 90, icon: 'pieceCurveR', meta: '90°' },
+    { label: 'Chicane', type: 'curve120' as PieceType, radius: 60, angle: 120, icon: 'pieceChicane', meta: '120°' },
   ];
 
   trackPresets = [
@@ -87,7 +121,20 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private racingLine: RacingLinePoint[] = [];
   showRacingLine = true;
   useOptimizedLine = true;
+  showAgents = true;
   estimatedLapTime = 0;
+
+  /** Best-effort provenance label attached to models extracted from training on this track. */
+  currentTrackLabel = 'Custom Track';
+
+  /** A model to start the next training run from, instead of a fresh random population. */
+  seedModel: SavedCarModel | null = null;
+
+  /** Which panel the telemetry drawer shows. */
+  telemetryView: 'training' | 'models' = 'training';
+  comparisonRunning = false;
+  comparisonLines: Array<{ color: string; points: RacingLinePoint[] }> = [];
+  comparisonResults: Record<string, ModelComparisonResult> = {};
 
   camera: Camera = { scale: 1, offsetX: 0, offsetY: 0 };
   private isPanning = false;
@@ -95,13 +142,47 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private cameraStart = { offsetX: 0, offsetY: 0 };
   zoomLevel = 100;
 
+  private themeSub!: Subscription;
+  private colors!: CanvasTheme;
+  private resizeObserver?: ResizeObserver;
+  private dpr = 1;
+  /** Canvas size in CSS pixels — the space camera and pointer coordinates live in. */
+  private viewWidth = 0;
+  private viewHeight = 0;
+  private dprQueryCleanup?: () => void;
+
   ngAfterViewInit(): void {
     const ctx = this.canvasRef.nativeElement.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context unavailable');
     this.ctx = ctx;
 
+    this.readCanvasTheme();
+    this.themeSub = this.themeService.resolved$.subscribe(() => {
+      // Custom properties have already been swapped on <html> by the service;
+      // re-read them so the next paint uses the new palette.
+      this.readCanvasTheme();
+      this.requestRedraw();
+    });
+
     this.car = new Car(this.settingsService.getSettings());
     this.carColor = this.settingsService.getActivePresetColor();
+
+    // The element has no layout yet during ngAfterViewInit, so observe it instead of
+    // measuring once — this also covers the sidebar and telemetry drawer resizing it.
+    let sized = false;
+    this.resizeObserver = new ResizeObserver(() => {
+      const changed = this.resizeCanvasToContainer();
+      if (!changed) return;
+      if (!sized) {
+        sized = true;
+        this.fitTrackToView();
+      }
+      this.requestRedraw();
+    });
+    this.resizeObserver.observe(this.canvasRef.nativeElement);
+    this.watchDevicePixelRatio();
+
+    this.resizeCanvasToContainer();
     this.fitTrackToView();
     this.requestRedraw();
 
@@ -139,7 +220,106 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.aiStatsSub?.unsubscribe();
     this.aiAgentsSub?.unsubscribe();
     this.historyEntrySub?.unsubscribe();
+    this.themeSub?.unsubscribe();
+    this.resizeObserver?.disconnect();
+    this.dprQueryCleanup?.();
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+  }
+
+  // ---------- Layout ----------
+  selectTab(tab: SidebarTab) {
+    this.activeTab = tab;
+  }
+
+  toggleTelemetry() {
+    this.telemetryOpen = !this.telemetryOpen;
+    // The canvas box changes size, so re-fit the camera on the next frame.
+    requestAnimationFrame(() => {
+      this.resizeCanvasToContainer();
+      this.requestRedraw();
+    });
+  }
+
+  setTelemetryView(view: 'training' | 'models') {
+    this.telemetryView = view;
+    if (!this.telemetryOpen) this.toggleTelemetry();
+  }
+
+  toggleShowAgents() {
+    this.showAgents = !this.showAgents;
+    this.requestRedraw();
+  }
+
+  // ---------- Theme ----------
+  private readCanvasTheme() {
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name: string, fallback: string) =>
+      styles.getPropertyValue(name).trim() || fallback;
+
+    this.colors = {
+      grid: read('--canvas-grid', '#151b24'),
+      gridMajor: read('--canvas-grid-major', '#1d2530'),
+      road: read('--canvas-road', '#232c38'),
+      roadEdge: read('--canvas-road-edge', '#46536a'),
+      centerline: read('--canvas-centerline', 'rgba(226,232,240,0.28)'),
+      kerbA: read('--canvas-kerb-a', '#cbd5e1'),
+      kerbB: read('--canvas-kerb-b', '#64748b'),
+      line: read('--canvas-line', '#22c55e'),
+      lineAlt: read('--canvas-line-alt', '#38bdf8'),
+      agent: read('--canvas-agent', '#f4c14e'),
+      agentDead: read('--canvas-agent-dead', '#7f3f45'),
+      text: read('--canvas-text', '#e2e8f0'),
+    };
+  }
+
+  /**
+   * Browser zoom and moving between displays change devicePixelRatio without changing the
+   * element's CSS box, so the ResizeObserver never fires and the canvas would keep rendering at
+   * the old density. A resolution media query is the only way to be notified; it has to be
+   * re-registered each time because the query itself is pinned to a specific ratio.
+   */
+  private watchDevicePixelRatio() {
+    if (!window.matchMedia) return;
+    const query = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const onChange = () => {
+      this.forceCanvasResize();
+      this.watchDevicePixelRatio();
+    };
+    query.addEventListener('change', onChange, { once: true });
+    this.dprQueryCleanup = () => query.removeEventListener('change', onChange);
+  }
+
+  private forceCanvasResize() {
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) return;
+    // Zero it so resizeCanvasToContainer's "unchanged" check can't short-circuit.
+    canvas.width = 0;
+    this.resizeCanvasToContainer();
+    this.requestRedraw();
+  }
+
+  /**
+   * Keeps the backing store matched to the element's CSS box (times DPR) so the track is drawn
+   * at native resolution instead of being stretched from the 300x150 canvas default.
+   * All camera and pointer maths stay in CSS pixels — drawAll applies the DPR scale itself.
+   */
+  private resizeCanvasToContainer(): boolean {
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.viewWidth = rect.width;
+    this.viewHeight = rect.height;
+
+    const width = Math.round(rect.width * this.dpr);
+    const height = Math.round(rect.height * this.dpr);
+    if (canvas.width === width && canvas.height === height) return false;
+
+    canvas.width = width;
+    canvas.height = height;
+    return true;
   }
 
   // ---------- Camera ----------
@@ -170,13 +350,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   zoomIn() {
-    const canvas = this.canvasRef.nativeElement;
-    this.zoomAt(canvas.width / 2, canvas.height / 2, 1.25);
+    this.zoomAt(this.viewWidth / 2, this.viewHeight / 2, 1.25);
   }
 
   zoomOut() {
-    const canvas = this.canvasRef.nativeElement;
-    this.zoomAt(canvas.width / 2, canvas.height / 2, 0.8);
+    this.zoomAt(this.viewWidth / 2, this.viewHeight / 2, 0.8);
   }
 
   resetZoom() {
@@ -186,7 +364,6 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   fitTrackToView() {
-    const canvas = this.canvasRef.nativeElement;
     const bbox = this.getTrackBoundingBox();
 
     if (!bbox) {
@@ -195,22 +372,26 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const padding = 60;
     const bboxWidthPx = (bbox.maxX - bbox.minX) * PX_PER_M;
     const bboxHeightPx = (bbox.maxY - bbox.minY) * PX_PER_M;
 
     if (bboxWidthPx < 1 && bboxHeightPx < 1) return;
 
-    const scaleX = (canvas.width - padding * 2) / Math.max(bboxWidthPx, 100);
-    const scaleY = (canvas.height - padding * 2) / Math.max(bboxHeightPx, 100);
-    const scale = Math.min(scaleX, scaleY, 2);
+    // Padding scales down on a short viewport (e.g. a small window with the telemetry drawer
+    // open) instead of staying fixed at 60px each side — a fixed padding bigger than the
+    // viewport itself drove `scaleX`/`scaleY` negative, which flipped and effectively hid
+    // everything drawn afterwards (comparison lines, agents) with no visible error.
+    const padding = Math.max(8, Math.min(60, Math.min(this.viewWidth, this.viewHeight) / 6));
+    const scaleX = (this.viewWidth - padding * 2) / Math.max(bboxWidthPx, 100);
+    const scaleY = (this.viewHeight - padding * 2) / Math.max(bboxHeightPx, 100);
+    const scale = Math.max(0.05, Math.min(scaleX, scaleY, 2));
 
     const centerX = (bbox.minX + bbox.maxX) / 2 * PX_PER_M;
     const centerY = (bbox.minY + bbox.maxY) / 2 * PX_PER_M;
 
     this.camera.scale = scale;
-    this.camera.offsetX = canvas.width / 2 - centerX * scale;
-    this.camera.offsetY = canvas.height / 2 - centerY * scale;
+    this.camera.offsetX = this.viewWidth / 2 - centerX * scale;
+    this.camera.offsetY = this.viewHeight / 2 - centerY * scale;
     this.zoomLevel = Math.round(scale * 100);
   }
 
@@ -264,6 +445,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.segments = segments;
     this.previewTurnRight = false;
+    this.currentTrackLabel = this.trackPresets.find(p => p.key === presetKey)?.label ?? 'Custom Track';
     this.car.resetCar();
     this.onTrackChanged();
     this.fitTrackToView();
@@ -426,6 +608,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     }
 
     this.dragPreview = null;
+    this.currentTrackLabel = 'Custom Track';
     this.onTrackChanged();
   }
 
@@ -434,10 +617,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   undoLastPiece() {
     if (this.segments.length <= 1) return;
     this.segments.pop();
+    this.currentTrackLabel = 'Custom Track';
     this.onTrackChanged();
   }
 
   private onTrackChanged() {
+    // Any edit invalidates comparison lines drawn for the previous layout.
+    this.clearComparisonState();
     this.updateRacingLine();
     this.requestRedraw();
   }
@@ -543,12 +729,21 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.requestRedraw();
   }
 
+  @HostListener('window:resize')
+  onWindowResize() {
+    this.resizeCanvasToContainer();
+    this.requestRedraw();
+  }
+
   // ---------- Drawing ----------
   private drawAll() {
     const ctx = this.ctx;
     const canvas = this.canvasRef.nativeElement;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Work in CSS pixels from here on; the DPR scale is applied once.
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     ctx.save();
     ctx.translate(this.camera.offsetX, this.camera.offsetY);
@@ -558,6 +753,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     for (const s of this.segments) this.drawSegment(s);
     this.drawRacingLine();
+    this.drawComparisonLines();
     this.drawTrainingAgents();
 
     if (this.dragPreview && this.segments.length) {
@@ -572,7 +768,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (this.racingLine.length < 2 || !this.showRacingLine) return;
 
     const ctx = this.ctx;
-    const lineColor = this.useOptimizedLine ? '#22c55e' : '#00ff00';
+    const lineColor = this.useOptimizedLine ? this.colors.line : this.colors.lineAlt;
 
     ctx.save();
     ctx.strokeStyle = lineColor;
@@ -587,25 +783,97 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.restore();
   }
 
-  private drawTrainingAgents() {
-    if (!this.trainingAgents.length) return;
+  /**
+   * One line per compared model, in the colour it was assigned in the comparer list — lets
+   * lines from cars trained under different settings or on different tracks be read against
+   * each other on whatever track is currently loaded.
+   */
+  private drawComparisonLines() {
+    if (!this.comparisonLines.length) return;
+
     const ctx = this.ctx;
     ctx.save();
-    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 2.5 / this.camera.scale;
+    ctx.globalAlpha = 0.9;
+
+    for (const line of this.comparisonLines) {
+      if (line.points.length < 2) continue;
+      ctx.strokeStyle = line.color;
+      ctx.beginPath();
+      ctx.moveTo(line.points[0].x * PX_PER_M, line.points[0].y * PX_PER_M);
+      for (let i = 1; i < line.points.length; i++) {
+        ctx.lineTo(line.points[i].x * PX_PER_M, line.points[i].y * PX_PER_M);
+      }
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Cars are drawn at their real size in metres, derived from the car's own wheelbase.
+   *
+   * They were previously sized as a constant number of *screen* pixels (`8 / camera.scale`),
+   * which meant zooming out inflated them in track terms — at a large track's fit-to-view zoom a
+   * car came out around 10 m wide, wider than the 10 m track itself, and even at 1:1 it was
+   * roughly twice the width of a real car.
+   */
+  private drawTrainingAgents() {
+    if (!this.showAgents || !this.trainingAgents.length) return;
+
+    const ctx = this.ctx;
+    const wheelbase = Math.max(1.5, this.settingsService.getSettings().wheelbase || 2.7);
+    // Overall length runs a little beyond the wheelbase at each end; width is a typical track.
+    const lengthM = wheelbase * 1.6;
+    const widthM = Math.max(1.6, wheelbase * 0.72);
+
+    let length = lengthM * PX_PER_M;
+    let width = widthM * PX_PER_M;
+
+    // Below a few pixels a car is unreadable, so hold a floor on apparent size when zoomed far
+    // out — but cap how far that can go, otherwise the floor reintroduces the original problem
+    // and the cars swallow the track again at extreme zoom levels.
+    const MIN_SCREEN_LENGTH = 4;
+    const MAX_BOOST = 1.8;
+    const screenLength = length * this.camera.scale;
+    if (screenLength < MIN_SCREEN_LENGTH) {
+      const boost = Math.min(MAX_BOOST, MIN_SCREEN_LENGTH / screenLength);
+      length *= boost;
+      width *= boost;
+    }
+
+    const half = length / 2;
+    const halfW = width / 2;
+    const detailed = length * this.camera.scale >= 14;
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
 
     for (const agent of this.trainingAgents) {
       const { x, y, heading, alive } = agent.state;
-      const size = 8 / this.camera.scale;
       ctx.save();
       ctx.translate(x * PX_PER_M, y * PX_PER_M);
       ctx.rotate(heading);
-      ctx.fillStyle = alive ? '#facc15' : '#ef4444';
+      ctx.fillStyle = alive ? this.colors.agent : this.colors.agentDead;
+
       ctx.beginPath();
-      ctx.moveTo(size, 0);
-      ctx.lineTo(-size * 0.6, -size * 0.7);
-      ctx.lineTo(-size * 0.6, size * 0.7);
+      if (detailed) {
+        // Simple silhouette: tapered nose, squared tail.
+        ctx.moveTo(half, -halfW * 0.62);
+        ctx.lineTo(half * 0.55, -halfW);
+        ctx.lineTo(-half * 0.88, -halfW);
+        ctx.lineTo(-half, -halfW * 0.72);
+        ctx.lineTo(-half, halfW * 0.72);
+        ctx.lineTo(-half * 0.88, halfW);
+        ctx.lineTo(half * 0.55, halfW);
+        ctx.lineTo(half, halfW * 0.62);
+      } else {
+        // Too small for detail to survive rasterisation — a plain body is cheaper and cleaner.
+        ctx.rect(-half, -halfW, length, width);
+      }
       ctx.closePath();
       ctx.fill();
+
       ctx.restore();
     }
 
@@ -614,26 +882,27 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   private drawGrid(step: number) {
     const ctx = this.ctx;
-    const canvas = this.canvasRef.nativeElement;
-    const w = canvas.width / this.camera.scale;
-    const h = canvas.height / this.camera.scale;
+    const w = this.viewWidth / this.camera.scale;
+    const h = this.viewHeight / this.camera.scale;
     const ox = -this.camera.offsetX / this.camera.scale;
     const oy = -this.camera.offsetY / this.camera.scale;
 
     ctx.save();
-    ctx.strokeStyle = '#1e293b';
     ctx.lineWidth = 1 / this.camera.scale;
 
     const startX = Math.floor(ox / step) * step;
     const startY = Math.floor(oy / step) * step;
 
+    // Every 5th line is emphasised so the grid reads as a measurable scale.
     for (let x = startX; x < ox + w; x += step) {
+      ctx.strokeStyle = Math.round(x / step) % 5 === 0 ? this.colors.gridMajor : this.colors.grid;
       ctx.beginPath();
       ctx.moveTo(x, oy);
       ctx.lineTo(x, oy + h);
       ctx.stroke();
     }
     for (let y = startY; y < oy + h; y += step) {
+      ctx.strokeStyle = Math.round(y / step) % 5 === 0 ? this.colors.gridMajor : this.colors.grid;
       ctx.beginPath();
       ctx.moveTo(ox, y);
       ctx.lineTo(ox + w, y);
@@ -657,33 +926,20 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.rotate(seg.heading);
     ctx.globalAlpha = ghost ? 0.4 : 1;
 
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = this.colors.road;
     ctx.fillRect(0, -roadWidth / 2, startLength, roadWidth);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillRect(0, -roadWidth / 2, startLength, 2);
-    ctx.fillRect(0, roadWidth / 2 - 2, startLength, 2);
+    ctx.fillStyle = this.colors.roadEdge;
+    ctx.fillRect(0, -roadWidth / 2, startLength, 1.5);
+    ctx.fillRect(0, roadWidth / 2 - 1.5, startLength, 1.5);
 
-    const checkSize = 8;
-    for (let i = 0; i < Math.ceil(roadWidth / (checkSize * 2)); i++) {
+    const checkSize = 6;
+    for (let i = 0; i < Math.ceil(roadWidth / checkSize); i++) {
       for (let j = 0; j < Math.ceil(startLength / checkSize); j++) {
-        if ((i + j) % 2 === 0) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(j * checkSize, -roadWidth / 2 + i * checkSize * 2, checkSize, checkSize);
-        }
+        ctx.fillStyle = (i + j) % 2 === 0 ? this.colors.kerbA : this.colors.kerbB;
+        ctx.fillRect(j * checkSize, -roadWidth / 2 + i * checkSize, checkSize, checkSize);
       }
     }
 
-    ctx.fillStyle = '#fffbeb';
-    ctx.font = `bold ${14 / this.camera.scale}px Inter, Arial`;
-    ctx.textAlign = 'center';
-    ctx.fillText('START', startLength / 2, 0);
-
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 3 / this.camera.scale;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(25, 0);
-    ctx.stroke();
     ctx.restore();
   }
 
@@ -696,33 +952,26 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.rotate(seg.heading);
     ctx.globalAlpha = ghost ? 0.4 : 1;
 
-    const roadGradient = ctx.createLinearGradient(0, -roadWidth / 2, L, roadWidth / 2);
-    roadGradient.addColorStop(0, ghost ? '#4b5563' : '#1f2937');
-    roadGradient.addColorStop(1, ghost ? '#6b7280' : '#374151');
-    ctx.fillStyle = roadGradient;
+    ctx.fillStyle = this.colors.road;
     ctx.fillRect(0, -roadWidth / 2, L, roadWidth);
 
-    ctx.strokeStyle = ghost ? '#9ca3af' : '#f8fafc';
-    ctx.lineWidth = 2 / this.camera.scale;
-    ctx.strokeRect(0, -roadWidth / 2, L, roadWidth);
+    ctx.strokeStyle = this.colors.roadEdge;
+    ctx.lineWidth = 1.5 / this.camera.scale;
+    ctx.beginPath();
+    ctx.moveTo(0, -roadWidth / 2);
+    ctx.lineTo(L, -roadWidth / 2);
+    ctx.moveTo(0, roadWidth / 2);
+    ctx.lineTo(L, roadWidth / 2);
+    ctx.stroke();
 
-    ctx.strokeStyle = ghost ? '#cbd5e1' : '#fef3c7';
-    ctx.lineWidth = 1.2 / this.camera.scale;
-    ctx.setLineDash([16, 10]);
+    ctx.strokeStyle = this.colors.centerline;
+    ctx.lineWidth = 1 / this.camera.scale;
+    ctx.setLineDash([14, 12]);
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(L, 0);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    ctx.strokeStyle = ghost ? '#94a3b8' : '#f8fafc';
-    ctx.lineWidth = 1 / this.camera.scale;
-    ctx.beginPath();
-    ctx.moveTo(0, -roadWidth / 2 + 3);
-    ctx.lineTo(L, -roadWidth / 2 + 3);
-    ctx.moveTo(0, roadWidth / 2 - 3);
-    ctx.lineTo(L, roadWidth / 2 - 3);
-    ctx.stroke();
     ctx.restore();
   }
 
@@ -740,25 +989,26 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     ctx.save();
     ctx.globalAlpha = ghost ? 0.4 : 1;
-    const roadGradient = ctx.createRadialGradient(cx, cy, R - roadWidth / 2, cx, cy, R + roadWidth / 2);
-    roadGradient.addColorStop(0, ghost ? '#4b5563' : '#374151');
-    roadGradient.addColorStop(1, ghost ? '#6b7280' : '#111827');
-    ctx.fillStyle = roadGradient;
+
+    ctx.fillStyle = this.colors.road;
     ctx.beginPath();
     ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
     ctx.arc(cx, cy, R - roadWidth / 2, endAngle, startAngle, angleRad >= 0);
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = ghost ? '#cbd5e1' : '#f8fafc';
-    ctx.lineWidth = 2 / this.camera.scale;
+    ctx.strokeStyle = this.colors.roadEdge;
+    ctx.lineWidth = 1.5 / this.camera.scale;
     ctx.beginPath();
     ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R - roadWidth / 2, startAngle, endAngle, angleRad < 0);
+    ctx.stroke();
 
-    ctx.strokeStyle = ghost ? '#94a3b8' : '#fef3c7';
+    ctx.strokeStyle = this.colors.centerline;
     ctx.lineWidth = 1 / this.camera.scale;
-    ctx.setLineDash([10, 8]);
+    ctx.setLineDash([10, 9]);
     ctx.beginPath();
     ctx.arc(cx, cy, R, startAngle, endAngle, angleRad < 0);
     ctx.stroke();
@@ -780,7 +1030,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const result = await this.aiDrivingService.train(
       this.settingsService.getSettings(),
       this.segments,
-      this.aiConfig
+      { ...this.aiConfig, seedWeights: this.seedModel?.weights ?? null },
+      this.currentTrackLabel
     );
     if (result.bestAgents.length) {
       const best = result.bestAgents[0];
@@ -795,12 +1046,54 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.aiDrivingService.stopTraining();
   }
 
+  // ---------- Models: seeding & comparison ----------
+  onUseModelAsSeed(model: SavedCarModel) {
+    this.seedModel = model;
+    this.activeTab = 'training';
+  }
+
+  clearSeedModel() {
+    this.seedModel = null;
+  }
+
+  /**
+   * Runs each selected model's frozen genome (no evolution) against the currently loaded track
+   * and draws the resulting line in that model's colour, so lines from cars trained under
+   * different settings or on different tracks can be compared directly on one layout.
+   */
+  async onRunModelComparison(entries: Array<{ model: SavedCarModel; color: string }>) {
+    if (this.isTraining || this.comparisonRunning || !this.segments.length) return;
+
+    this.comparisonRunning = true;
+    this.comparisonLines = [];
+
+    for (const { model, color } of entries) {
+      const result = await this.aiDrivingService.runGenomeOnTrack(model.weights, model.carSettings, this.segments);
+      this.comparisonResults = {
+        ...this.comparisonResults,
+        [model.id]: { lapTime: result.lapTime, progress: result.progress, completed: result.completed },
+      };
+      this.comparisonLines = [...this.comparisonLines, { color, points: result.trajectory }];
+      this.requestRedraw();
+    }
+
+    this.comparisonRunning = false;
+  }
+
   clearTrack() {
     this.segments = [];
     this.racingLine = [];
     this.estimatedLapTime = 0;
+    this.currentTrackLabel = 'Custom Track';
+    this.clearComparisonState();
     this.car.resetCar();
     this.requestRedraw();
+  }
+
+  /** Comparison lines and results describe a specific track — stale once it changes. */
+  private clearComparisonState() {
+    this.comparisonLines = [];
+    this.comparisonResults = {};
   }
 
   setTurnDirection(turnRight: boolean) {
