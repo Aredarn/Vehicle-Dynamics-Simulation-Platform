@@ -14,7 +14,7 @@ This project is for myself to learn a bit more physics and get more experience. 
 - Final drive ratio (NOT YET WORKING)
 - Wheelbase (in meter NOT YET WORKING)
 
-  <img width="1919" height="948" alt="Képernyőkép 2026-07-28 122042" src="https://github.com/user-attachments/assets/f46a47ba-8012-43a0-994d-3cddb5ea7e65" />
+<img width="1919" height="1033" alt="Képernyőkép 2026-07-29 130328" src="https://github.com/user-attachments/assets/f76fb3fd-eb33-4c3e-a461-10dfc9bcb31b" />
 
 ## How to use (Inside powershell):
 1. Download the code using Git
