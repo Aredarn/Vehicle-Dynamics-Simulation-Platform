@@ -41,6 +41,12 @@ const ICONS: Record<string, string> = {
   pieceCurveL: '<path d="M4 16.5V11a6 6 0 0 1 6-6h6"/><path d="M13.5 2.5 16.5 5l-3 2.5"/>',
   pieceCurveR: '<path d="M16 16.5V11a6 6 0 0 0-6-6H4"/><path d="M6.5 2.5 3.5 5l3 2.5"/>',
   pieceChicane: '<path d="M3 15c3 0 3-4.5 6-4.5S12 5 15 5"/><path d="M13.5 2.5 16.5 5l-3 2.5"/>',
+
+  // Models library
+  upload: '<path d="M10 12.5V3"/><path d="m6.5 6.5 3.5-3.5 3.5 3.5"/><path d="M4 15.5h12"/>',
+  edit: '<path d="M12.5 3.5 16.5 7.5 7 17H3v-4l9.5-9.5Z"/><path d="M11 5l4 4"/>',
+  bookmark: '<path d="M5.5 3.5h9a1 1 0 0 1 1 1V17l-5.5-3-5.5 3V4.5a1 1 0 0 1 1-1Z"/>',
+  layers: '<path d="m10 3 7 4-7 4-7-4 7-4Z"/><path d="m3 11 7 4 7-4"/><path d="m3 14.5 7 4 7-4"/>',
 };
 
 @Component({

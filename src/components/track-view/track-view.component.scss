@@ -232,6 +232,30 @@
   }
 }
 
+.seed-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 7px var(--sp-3);
+  margin-bottom: var(--sp-3);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-2);
+  color: var(--accent);
+
+  &__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    strong { font-weight: 600; }
+  }
+}
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -372,6 +396,7 @@
   &__bar {
     display: flex;
     align-items: center;
+    gap: var(--sp-3);
     flex-shrink: 0;
     height: 34px;
     padding: 0 var(--sp-2);

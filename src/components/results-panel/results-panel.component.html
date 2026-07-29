@@ -103,20 +103,30 @@
         <span>Alive</span>
       </div>
       <div class="gen-table__scroll">
-        <button
-          *ngFor="let entry of recentEntries(run)"
-          type="button"
-          class="gen-table__row"
-          [class.is-selected]="entry.generation === selectedGeneration"
-          (click)="selectEntry(entry)"
-          title="Show this generation's line on the track"
-        >
-          <span class="num">{{ entry.generation }}</span>
-          <span class="num" [class.is-dim]="!entry.bestLapTime">{{ entry.bestLapTime ? (entry.bestLapTime | number:'1.2-2') : '—' }}</span>
-          <span class="num">{{ entry.bestProgress.toFixed(0) }}%</span>
-          <span class="num">{{ entry.bestFitness.toFixed(0) }}</span>
-          <span class="num">{{ entry.aliveCount }}</span>
-        </button>
+        <div *ngFor="let entry of recentEntries(run)" class="gen-table__row-wrap">
+          <button
+            type="button"
+            class="gen-table__row"
+            [class.is-selected]="entry.generation === selectedGeneration"
+            (click)="selectEntry(entry)"
+            title="Show this generation's line on the track"
+          >
+            <span class="num">{{ entry.generation }}</span>
+            <span class="num" [class.is-dim]="!entry.bestLapTime">{{ entry.bestLapTime ? (entry.bestLapTime | number:'1.2-2') : '—' }}</span>
+            <span class="num">{{ entry.bestProgress.toFixed(0) }}%</span>
+            <span class="num">{{ entry.bestFitness.toFixed(0) }}</span>
+            <span class="num">{{ entry.aliveCount }}</span>
+          </button>
+          <button
+            type="button"
+            class="gen-table__save"
+            [disabled]="!entry.weights.length"
+            (click)="saveAsModel(run, entry, $event)"
+            title="Save this generation as a model"
+          >
+            <app-icon name="bookmark" [size]="12"></app-icon>
+          </button>
+        </div>
       </div>
     </div>
   </div>

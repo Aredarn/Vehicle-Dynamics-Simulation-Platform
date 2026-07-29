@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { AIDrivingService, AITrainingHistoryEntry, AITrainingRun } from '../../services/ai-driving.service';
+import { ModelLibraryService } from '../../services/model-library.service';
 import { IconComponent } from '../icon/icon.component';
 import { TrendChartComponent, TrendSeries } from '../trend-chart/trend-chart.component';
 
@@ -35,7 +36,10 @@ export class ResultsPanelComponent implements OnInit, OnDestroy {
   private runsSub!: Subscription;
   private selectedSub!: Subscription;
 
-  constructor(private aiDrivingService: AIDrivingService) {}
+  constructor(
+    private aiDrivingService: AIDrivingService,
+    private modelLibrary: ModelLibraryService,
+  ) {}
 
   ngOnInit() {
     this.runsSub = this.aiDrivingService.runs$.subscribe(runs => {
@@ -144,6 +148,32 @@ export class ResultsPanelComponent implements OnInit, OnDestroy {
 
   selectEntry(entry: AITrainingHistoryEntry) {
     this.aiDrivingService.selectHistoryEntry(entry);
+  }
+
+  /**
+   * Extracts a generation checkpoint as a standalone, exportable model — the weights plus the
+   * car/track context they were trained under. Available on every generation, not just the
+   * run's final one, since the best result of a run often isn't its last generation.
+   */
+  saveAsModel(run: AITrainingRun, entry: AITrainingHistoryEntry, event: Event) {
+    event.stopPropagation();
+    if (!entry.weights.length) return;
+
+    const suggested = `${this.shortLabel(run)} · Gen ${entry.generation}`;
+    const name = window.prompt('Save this generation as a model:', suggested);
+    if (!name || !name.trim()) return;
+
+    this.modelLibrary.saveModel({
+      name: name.trim(),
+      weights: entry.weights,
+      carSettings: run.carSettings,
+      trainedTrackLabel: run.trackLabel,
+      trainedTrackLength: run.trackLength,
+      generation: entry.generation,
+      bestLapTime: entry.bestLapTime,
+      bestFitness: entry.bestFitness,
+      bestProgress: entry.bestProgress,
+    });
   }
 
   /** Newest generations first — the interesting end of a long run. */

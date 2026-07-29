@@ -6,6 +6,7 @@ import { CarSettings, CarSettingsService } from '../../services/car-settings.ser
 import { RacingLineOptimizerService } from '../../services/racing-line-optimizer.service';
 import { AIDrivingService, AIGenerationStats } from '../../services/ai-driving.service';
 import { ThemeService } from '../../services/theme.service';
+import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
 import { PieceType, Segment } from '../../models/Track';
@@ -13,6 +14,7 @@ import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 import { IconComponent } from '../icon/icon.component';
 import { CarSettingsComponent } from '../car-settings/car-settings.component';
 import { ResultsPanelComponent } from '../results-panel/results-panel.component';
+import { ModelCompareComponent, ModelComparisonResult } from '../model-compare/model-compare.component';
 
 const roadWidth = 30;
 const PX_PER_M = 3;
@@ -44,7 +46,7 @@ interface CanvasTheme {
 @Component({
   selector: 'app-track-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent, CarSettingsComponent, ResultsPanelComponent],
+  imports: [CommonModule, FormsModule, IconComponent, CarSettingsComponent, ResultsPanelComponent, ModelCompareComponent],
   templateUrl: './track-view.component.html',
   styleUrls: ['./track-view.component.scss']
 })
@@ -119,7 +121,20 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private racingLine: RacingLinePoint[] = [];
   showRacingLine = true;
   useOptimizedLine = true;
+  showAgents = true;
   estimatedLapTime = 0;
+
+  /** Best-effort provenance label attached to models extracted from training on this track. */
+  currentTrackLabel = 'Custom Track';
+
+  /** A model to start the next training run from, instead of a fresh random population. */
+  seedModel: SavedCarModel | null = null;
+
+  /** Which panel the telemetry drawer shows. */
+  telemetryView: 'training' | 'models' = 'training';
+  comparisonRunning = false;
+  comparisonLines: Array<{ color: string; points: RacingLinePoint[] }> = [];
+  comparisonResults: Record<string, ModelComparisonResult> = {};
 
   camera: Camera = { scale: 1, offsetX: 0, offsetY: 0 };
   private isPanning = false;
@@ -223,6 +238,16 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.resizeCanvasToContainer();
       this.requestRedraw();
     });
+  }
+
+  setTelemetryView(view: 'training' | 'models') {
+    this.telemetryView = view;
+    if (!this.telemetryOpen) this.toggleTelemetry();
+  }
+
+  toggleShowAgents() {
+    this.showAgents = !this.showAgents;
+    this.requestRedraw();
   }
 
   // ---------- Theme ----------
@@ -347,15 +372,19 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const padding = 60;
     const bboxWidthPx = (bbox.maxX - bbox.minX) * PX_PER_M;
     const bboxHeightPx = (bbox.maxY - bbox.minY) * PX_PER_M;
 
     if (bboxWidthPx < 1 && bboxHeightPx < 1) return;
 
+    // Padding scales down on a short viewport (e.g. a small window with the telemetry drawer
+    // open) instead of staying fixed at 60px each side — a fixed padding bigger than the
+    // viewport itself drove `scaleX`/`scaleY` negative, which flipped and effectively hid
+    // everything drawn afterwards (comparison lines, agents) with no visible error.
+    const padding = Math.max(8, Math.min(60, Math.min(this.viewWidth, this.viewHeight) / 6));
     const scaleX = (this.viewWidth - padding * 2) / Math.max(bboxWidthPx, 100);
     const scaleY = (this.viewHeight - padding * 2) / Math.max(bboxHeightPx, 100);
-    const scale = Math.min(scaleX, scaleY, 2);
+    const scale = Math.max(0.05, Math.min(scaleX, scaleY, 2));
 
     const centerX = (bbox.minX + bbox.maxX) / 2 * PX_PER_M;
     const centerY = (bbox.minY + bbox.maxY) / 2 * PX_PER_M;
@@ -416,6 +445,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.segments = segments;
     this.previewTurnRight = false;
+    this.currentTrackLabel = this.trackPresets.find(p => p.key === presetKey)?.label ?? 'Custom Track';
     this.car.resetCar();
     this.onTrackChanged();
     this.fitTrackToView();
@@ -578,6 +608,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     }
 
     this.dragPreview = null;
+    this.currentTrackLabel = 'Custom Track';
     this.onTrackChanged();
   }
 
@@ -586,10 +617,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   undoLastPiece() {
     if (this.segments.length <= 1) return;
     this.segments.pop();
+    this.currentTrackLabel = 'Custom Track';
     this.onTrackChanged();
   }
 
   private onTrackChanged() {
+    // Any edit invalidates comparison lines drawn for the previous layout.
+    this.clearComparisonState();
     this.updateRacingLine();
     this.requestRedraw();
   }
@@ -719,6 +753,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     for (const s of this.segments) this.drawSegment(s);
     this.drawRacingLine();
+    this.drawComparisonLines();
     this.drawTrainingAgents();
 
     if (this.dragPreview && this.segments.length) {
@@ -749,6 +784,33 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
+   * One line per compared model, in the colour it was assigned in the comparer list — lets
+   * lines from cars trained under different settings or on different tracks be read against
+   * each other on whatever track is currently loaded.
+   */
+  private drawComparisonLines() {
+    if (!this.comparisonLines.length) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineWidth = 2.5 / this.camera.scale;
+    ctx.globalAlpha = 0.9;
+
+    for (const line of this.comparisonLines) {
+      if (line.points.length < 2) continue;
+      ctx.strokeStyle = line.color;
+      ctx.beginPath();
+      ctx.moveTo(line.points[0].x * PX_PER_M, line.points[0].y * PX_PER_M);
+      for (let i = 1; i < line.points.length; i++) {
+        ctx.lineTo(line.points[i].x * PX_PER_M, line.points[i].y * PX_PER_M);
+      }
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
    * Cars are drawn at their real size in metres, derived from the car's own wheelbase.
    *
    * They were previously sized as a constant number of *screen* pixels (`8 / camera.scale`),
@@ -757,7 +819,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
    * roughly twice the width of a real car.
    */
   private drawTrainingAgents() {
-    if (!this.trainingAgents.length) return;
+    if (!this.showAgents || !this.trainingAgents.length) return;
 
     const ctx = this.ctx;
     const wheelbase = Math.max(1.5, this.settingsService.getSettings().wheelbase || 2.7);
@@ -968,7 +1030,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const result = await this.aiDrivingService.train(
       this.settingsService.getSettings(),
       this.segments,
-      this.aiConfig
+      { ...this.aiConfig, seedWeights: this.seedModel?.weights ?? null },
+      this.currentTrackLabel
     );
     if (result.bestAgents.length) {
       const best = result.bestAgents[0];
@@ -983,12 +1046,54 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.aiDrivingService.stopTraining();
   }
 
+  // ---------- Models: seeding & comparison ----------
+  onUseModelAsSeed(model: SavedCarModel) {
+    this.seedModel = model;
+    this.activeTab = 'training';
+  }
+
+  clearSeedModel() {
+    this.seedModel = null;
+  }
+
+  /**
+   * Runs each selected model's frozen genome (no evolution) against the currently loaded track
+   * and draws the resulting line in that model's colour, so lines from cars trained under
+   * different settings or on different tracks can be compared directly on one layout.
+   */
+  async onRunModelComparison(entries: Array<{ model: SavedCarModel; color: string }>) {
+    if (this.isTraining || this.comparisonRunning || !this.segments.length) return;
+
+    this.comparisonRunning = true;
+    this.comparisonLines = [];
+
+    for (const { model, color } of entries) {
+      const result = await this.aiDrivingService.runGenomeOnTrack(model.weights, model.carSettings, this.segments);
+      this.comparisonResults = {
+        ...this.comparisonResults,
+        [model.id]: { lapTime: result.lapTime, progress: result.progress, completed: result.completed },
+      };
+      this.comparisonLines = [...this.comparisonLines, { color, points: result.trajectory }];
+      this.requestRedraw();
+    }
+
+    this.comparisonRunning = false;
+  }
+
   clearTrack() {
     this.segments = [];
     this.racingLine = [];
     this.estimatedLapTime = 0;
+    this.currentTrackLabel = 'Custom Track';
+    this.clearComparisonState();
     this.car.resetCar();
     this.requestRedraw();
+  }
+
+  /** Comparison lines and results describe a specific track — stale once it changes. */
+  private clearComparisonState() {
+    this.comparisonLines = [];
+    this.comparisonResults = {};
   }
 
   setTurnDirection(turnRight: boolean) {

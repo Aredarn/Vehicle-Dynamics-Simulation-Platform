@@ -1,0 +1,69 @@
+<div class="models">
+  <div class="models__toolbar">
+    <label class="btn btn--ghost btn--sm models__import">
+      <app-icon name="upload" [size]="13"></app-icon> Import
+      <input type="file" accept="application/json,.json" multiple hidden (change)="onImportFiles($event)" />
+    </label>
+
+    <button
+      type="button"
+      class="btn btn--sm"
+      [disabled]="!trackReady || running || !selectedModels.length"
+      (click)="runComparison()"
+    >
+      <app-icon name="compare" [size]="13"></app-icon>
+      {{ running ? 'Running…' : 'Run selected on current track' }}
+    </button>
+  </div>
+
+  <p class="hint models__notice" *ngIf="!trackReady">Build or load a track first to compare models on it.</p>
+  <p class="hint models__notice models__notice--error" *ngIf="importError">{{ importError }}</p>
+
+  <div class="models__list" *ngIf="models.length; else emptyModels">
+    <div *ngFor="let model of models" class="model" [class.is-selected]="isSelected(model)">
+      <label class="model__select" [title]="isSelected(model) ? 'Hide from comparison' : 'Add to comparison'">
+        <input type="checkbox" [checked]="isSelected(model)" (change)="toggleSelect(model)" />
+        <span
+          class="model__swatch"
+          [style.background]="isSelected(model) ? colorFor(model) : 'transparent'"
+          [style.border-color]="colorFor(model)"
+        ></span>
+      </label>
+
+      <div class="model__text">
+        <span class="model__name">{{ model.name }}</span>
+        <span class="model__meta num">
+          {{ model.carSettings.name }} · trained on {{ model.trainedTrackLabel }} ·
+          {{ model.bestLapTime ? (model.bestLapTime | number:'1.2-2') + 's' : model.bestProgress.toFixed(0) + '%' }}
+        </span>
+        <span class="model__result num" *ngIf="resultFor(model) as r">
+          on this track:
+          <strong>{{ r.completed ? (r.lapTime | number:'1.2-2') + 's' : r.progress.toFixed(0) + '% (did not finish)' }}</strong>
+        </span>
+      </div>
+
+      <div class="model__actions">
+        <button type="button" class="btn btn--icon btn--sm" (click)="requestSeed(model, $event)" title="Continue training from this model">
+          <app-icon name="cpu" [size]="13"></app-icon>
+        </button>
+        <button type="button" class="btn btn--icon btn--sm" (click)="rename(model, $event)" title="Rename">
+          <app-icon name="edit" [size]="13"></app-icon>
+        </button>
+        <button type="button" class="btn btn--icon btn--sm" (click)="export(model, $event)" title="Export as file">
+          <app-icon name="download" [size]="13"></app-icon>
+        </button>
+        <button type="button" class="btn btn--icon btn--sm" (click)="remove(model, $event)" title="Delete">
+          <app-icon name="trash" [size]="13"></app-icon>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <ng-template #emptyModels>
+    <div class="empty">
+      <app-icon name="layers" [size]="22"></app-icon>
+      <p class="empty__title">No saved models</p>
+      <p class="empty__hint">Save a generation from the Training telemetry while training, or import a model file.</p>
+    </div>
+  </ng-template>
+</div>

@@ -91,6 +91,11 @@
             <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
             <span>Use optimised line</span>
           </label>
+          <label class="toggle">
+            <input type="checkbox" [checked]="showAgents" (change)="toggleShowAgents()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Show cars on track</span>
+          </label>
         </section>
       </ng-container>
 
@@ -101,6 +106,14 @@
             <span>Parameters</span>
             <span class="section__meta">{{ activeCarModel }}</span>
           </h3>
+
+          <div class="seed-banner" *ngIf="seedModel">
+            <app-icon name="cpu" [size]="13"></app-icon>
+            <span class="seed-banner__text">Starting from <strong>{{ seedModel.name }}</strong></span>
+            <button type="button" class="btn btn--icon btn--sm" (click)="clearSeedModel()" [disabled]="isTraining" title="Start fresh instead">
+              <app-icon name="trash" [size]="12"></app-icon>
+            </button>
+          </div>
 
           <div class="param">
             <label for="popSize">Population</label>
@@ -212,12 +225,25 @@
       <header class="telemetry__bar">
         <button type="button" class="telemetry__toggle" (click)="toggleTelemetry()" [attr.aria-expanded]="telemetryOpen">
           <app-icon [name]="telemetryOpen ? 'chevronDown' : 'chevronRight'" [size]="14"></app-icon>
-          <app-icon name="chart" [size]="15"></app-icon>
-          <span>Telemetry</span>
+          <app-icon [name]="telemetryView === 'training' ? 'chart' : 'layers'" [size]="15"></app-icon>
+          <span>{{ telemetryView === 'training' ? 'Telemetry' : 'Models' }}</span>
         </button>
+
+        <div class="segmented telemetry__view-switch" role="group" aria-label="Telemetry view">
+          <button type="button" class="segmented__btn" [class.is-active]="telemetryView === 'training'" (click)="setTelemetryView('training')">Training</button>
+          <button type="button" class="segmented__btn" [class.is-active]="telemetryView === 'models'" (click)="setTelemetryView('models')">Models</button>
+        </div>
       </header>
       <div class="telemetry__body" *ngIf="telemetryOpen">
-        <app-results-panel></app-results-panel>
+        <app-results-panel *ngIf="telemetryView === 'training'"></app-results-panel>
+        <app-model-compare
+          *ngIf="telemetryView === 'models'"
+          [trackReady]="segmentCount > 0"
+          [running]="comparisonRunning"
+          [results]="comparisonResults"
+          (runSelected)="onRunModelComparison($event)"
+          (useAsSeed)="onUseModelAsSeed($event)"
+        ></app-model-compare>
       </div>
     </section>
   </div>

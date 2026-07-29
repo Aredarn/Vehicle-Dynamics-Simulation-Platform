@@ -187,8 +187,16 @@
     overflow-y: auto;
   }
 
+  &__row-wrap {
+    display: flex;
+    align-items: stretch;
+
+    &:hover .gen-table__save { opacity: 1; }
+  }
+
   &__row {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     height: 26px;
     border: none;
     border-left: 2px solid transparent;
@@ -212,6 +220,22 @@
 
       span:first-child { color: var(--accent); font-weight: 600; }
     }
+  }
+
+  &__save {
+    flex: 0 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--transition), background-color var(--transition), color var(--transition);
+
+    &:hover { background: var(--surface-3); color: var(--accent); }
+    &:disabled { opacity: 0 !important; cursor: default; }
   }
 }
 
