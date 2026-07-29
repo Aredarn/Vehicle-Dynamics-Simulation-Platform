@@ -1,59 +1,131 @@
-<aside class="results-panel">
-  <div class="panel-header">
-    <div class="panel-header__icon">📊</div>
-    <div>
-      <div class="panel-header__title">Results</div>
-      <div class="panel-header__subtitle">AI training history</div>
+<div class="results" *ngIf="runs.length; else emptyState">
+  <!-- Run list -->
+  <div class="results__runs">
+    <div class="results__runs-head eyebrow">
+      <span>Runs</span>
+      <span class="results__compare-hint" *ngIf="runs.length > 1">
+        <app-icon name="compare" [size]="12"></app-icon> compare
+      </span>
     </div>
+
+    <button
+      *ngFor="let run of runs"
+      type="button"
+      class="run"
+      [class.is-active]="run.id === activeRunId"
+      (click)="selectRun(run)"
+    >
+      <span
+        class="run__swatch"
+        [class.is-on]="isCompared(run)"
+        [style.background]="isCompared(run) ? runColor(run) : 'transparent'"
+        [style.border-color]="runColor(run)"
+        (click)="toggleCompare(run, $event)"
+        [attr.title]="isCompared(run) ? 'Hide from charts' : 'Show on charts'"
+      ></span>
+
+      <span class="run__text">
+        <span class="run__name">{{ shortLabel(run) }}</span>
+        <span class="run__meta num">
+          {{ run.generationCount }} gen ·
+          {{ bestLapOf(run) !== null ? (bestLapOf(run) | number:'1.2-2') + 's' : run.bestProgress.toFixed(0) + '%' }}
+        </span>
+      </span>
+
+      <span class="run__export" (click)="exportRun(run, $event)" title="Export run as JSON">
+        <app-icon name="download" [size]="13"></app-icon>
+      </span>
+    </button>
   </div>
 
-  <ng-container *ngIf="runs.length; else emptyState">
-    <div class="runs-list">
-      <section *ngFor="let run of runs" class="run-card">
-        <div class="run-header" (click)="toggleRun(run)" role="button" tabindex="0">
-          <div>
-            <strong>{{ run.label }}</strong>
-            <div class="run-meta">
-              <span>{{ run.generationCount }} gens</span>
-              <span>{{ run.bestProgress.toFixed(0) }}% track</span>
-              <span>Best {{ run.bestLapTime.toFixed(1) }}s</span>
-              <span>Fitness {{ run.bestFitness.toFixed(1) }}</span>
-            </div>
-          </div>
-          <div class="run-actions">
-            <button type="button" class="run-export" (click)="exportRun(run); $event.stopPropagation()">Export</button>
-            <span class="run-toggle">{{ isRunExpanded(run) ? '▾' : '▸' }}</span>
-          </div>
-        </div>
+  <!-- Charts -->
+  <div class="results__charts">
+    <app-trend-chart
+      title="Best fitness"
+      [series]="fitnessSeries"
+      [height]="120"
+    ></app-trend-chart>
 
-        <div class="run-entries" *ngIf="isRunExpanded(run)">
-          <button
-            *ngFor="let entry of run.entries"
-            type="button"
-            class="history-item"
-            [class.selected]="entry.generation === selectedGeneration"
-            (click)="selectEntry(entry)"
-          >
-            <div class="history-item__header">
-              <span>Gen {{ entry.generation }}</span>
-              <strong>{{ entry.bestLapTime.toFixed(1) }}s</strong>
-            </div>
-            <div class="history-item__meta">
-              <span>Progress: {{ entry.bestProgress.toFixed(0) }}%</span>
-              <span>Fitness: {{ entry.bestFitness.toFixed(1) }}</span>
-              <span>Avg: {{ entry.averageFitness.toFixed(1) }}</span>
-            </div>
-          </button>
-        </div>
-      </section>
-    </div>
-  </ng-container>
+    <app-trend-chart
+      title="Best lap time"
+      unit="s"
+      [series]="lapSeries"
+      [ignoreAtOrBelow]="0"
+      [height]="120"
+    ></app-trend-chart>
 
-  <ng-template #emptyState>
-    <div class="results-empty">
-      <div class="results-empty__icon">🏎</div>
-      <p class="results-empty__title">No results yet</p>
-      <p class="results-empty__hint">Train the AI to generate a history of optimal paths here.</p>
+    <app-trend-chart
+      title="Survivors"
+      [series]="survivalSeries"
+      [height]="120"
+    ></app-trend-chart>
+  </div>
+
+  <!-- Active run detail -->
+  <div class="results__detail" *ngIf="activeRun as run">
+    <div class="results__detail-head">
+      <span class="eyebrow">{{ shortLabel(run) }}</span>
+      <span class="hint">{{ run.label }}</span>
     </div>
-  </ng-template>
-</aside>
+
+    <div class="stat-grid results__summary">
+      <div class="stat">
+        <div class="stat__label">Best lap</div>
+        <div class="stat__value">
+          {{ bestLapOf(run) !== null ? (bestLapOf(run) | number:'1.2-2') : '—' }}
+          <span class="stat__unit" *ngIf="bestLapOf(run) !== null">s</span>
+        </div>
+      </div>
+      <div class="stat">
+        <div class="stat__label">Progress</div>
+        <div class="stat__value">{{ run.bestProgress.toFixed(1) }}<span class="stat__unit">%</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat__label">Generations</div>
+        <div class="stat__value">{{ run.generationCount }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat__label">Laps done</div>
+        <div class="stat__value">{{ finishedCount(run) }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat__label">Best fitness</div>
+        <div class="stat__value">{{ run.bestFitness.toFixed(0) }}</div>
+      </div>
+    </div>
+
+    <div class="gen-table">
+      <div class="gen-table__head">
+        <span>Gen</span>
+        <span>Lap</span>
+        <span>Prog</span>
+        <span>Fitness</span>
+        <span>Alive</span>
+      </div>
+      <div class="gen-table__scroll">
+        <button
+          *ngFor="let entry of recentEntries(run)"
+          type="button"
+          class="gen-table__row"
+          [class.is-selected]="entry.generation === selectedGeneration"
+          (click)="selectEntry(entry)"
+          title="Show this generation's line on the track"
+        >
+          <span class="num">{{ entry.generation }}</span>
+          <span class="num" [class.is-dim]="!entry.bestLapTime">{{ entry.bestLapTime ? (entry.bestLapTime | number:'1.2-2') : '—' }}</span>
+          <span class="num">{{ entry.bestProgress.toFixed(0) }}%</span>
+          <span class="num">{{ entry.bestFitness.toFixed(0) }}</span>
+          <span class="num">{{ entry.aliveCount }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ng-template #emptyState>
+  <div class="empty">
+    <app-icon name="chart" [size]="22"></app-icon>
+    <p class="empty__title">No training data</p>
+    <p class="empty__hint">Run a training session from the Training tab to record fitness, lap times and survival here.</p>
+  </div>
+</ng-template>

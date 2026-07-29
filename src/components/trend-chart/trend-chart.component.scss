@@ -1,0 +1,96 @@
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  min-width: 0;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
+
+  &__title {
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  &__legend {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
+
+  &__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--fs-xs);
+  }
+
+  &__swatch {
+    width: 8px;
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  &__legend-label { color: var(--text-3); }
+  &__legend-value { color: var(--text-1); font-weight: 600; }
+
+  &__plot {
+    position: relative;
+    background: var(--surface-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    overflow: hidden;
+  }
+
+  &__svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  &__grid {
+    stroke: var(--border);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+  }
+
+  &__line {
+    fill: none;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+  }
+
+  &__axis {
+    position: absolute;
+    font-size: var(--fs-micro);
+    color: var(--text-3);
+    pointer-events: none;
+    background: color-mix(in srgb, var(--surface-inset) 82%, transparent);
+    padding: 0 3px;
+    border-radius: var(--r-1);
+
+    &--max { top: 3px; left: 4px; }
+    &--min { bottom: 14px; left: 4px; }
+    &--x { bottom: 2px; right: 4px; }
+  }
+}

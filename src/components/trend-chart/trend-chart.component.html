@@ -1,0 +1,48 @@
+<figure class="chart">
+  <figcaption class="chart__head">
+    <span class="chart__title">{{ title }}</span>
+    <span class="chart__legend">
+      <span class="chart__legend-item" *ngFor="let s of rendered">
+        <span class="chart__swatch" [style.background]="s.color"></span>
+        <span class="chart__legend-label">{{ s.label }}</span>
+        <span class="chart__legend-value num">{{ format(s.last) }}</span>
+      </span>
+    </span>
+  </figcaption>
+
+  <div class="chart__plot" [style.height.px]="height">
+    <svg
+      *ngIf="hasData; else noData"
+      [attr.viewBox]="'0 0 ' + width + ' ' + height"
+      preserveAspectRatio="none"
+      class="chart__svg"
+      role="img"
+      [attr.aria-label]="title"
+    >
+      <line
+        *ngFor="let y of gridLines"
+        class="chart__grid"
+        [attr.x1]="padLeft"
+        [attr.x2]="width - padRight"
+        [attr.y1]="y"
+        [attr.y2]="y"
+        vector-effect="non-scaling-stroke"
+      />
+      <path
+        *ngFor="let s of rendered"
+        class="chart__line"
+        [attr.d]="s.path"
+        [attr.stroke]="s.color"
+        vector-effect="non-scaling-stroke"
+      />
+    </svg>
+
+    <ng-template #noData>
+      <div class="chart__empty">No data yet</div>
+    </ng-template>
+
+    <span class="chart__axis chart__axis--max num" *ngIf="hasData">{{ format(yMax) }}{{ unit }}</span>
+    <span class="chart__axis chart__axis--min num" *ngIf="hasData">{{ format(yMin) }}{{ unit }}</span>
+    <span class="chart__axis chart__axis--x num" *ngIf="hasData">gen {{ xMax }}</span>
+  </div>
+</figure>
