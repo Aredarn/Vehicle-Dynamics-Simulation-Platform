@@ -355,28 +355,52 @@ export class AIDrivingService {
   }
 
   private async simulateAgents(agents: CarAgent[], steps: number, dt: number) {
-    // Each yield costs a macrotask (~4ms floor), so this dominates wall-clock time on the long
-    // budgets a large track needs. 16 still animates smoothly at 30Hz simulation rate.
-    const renderEvery = 16;
+    // Yielding on a step count breaks down as the population grows: with a thousand cars a
+    // single step is tens of milliseconds, so any fixed number of steps between yields locks
+    // the main thread for hundreds of milliseconds and the UI drops to a few frames a second.
+    //
+    // Budget by elapsed time instead, and — because agents never interact — advance a step in
+    // slices, yielding part-way through when the budget is spent. Results are identical; only
+    // the interleaving changes.
+    const FRAME_BUDGET_MS = 8;
+    const SNAPSHOT_INTERVAL_MS = 60;
+    const SLICE = 64;
+
+    let sliceStart = performance.now();
+    let lastSnapshot = 0;
+
     for (let step = 0; step < steps; step++) {
       if (this.stopRequested) break;
 
       let anyActive = false;
-      agents.forEach(agent => {
-        if (agent.state.alive) {
-          agent.update(dt);
-          anyActive = true;
+
+      for (let i = 0; i < agents.length;) {
+        const end = Math.min(agents.length, i + SLICE);
+        for (; i < end; i++) {
+          const agent = agents[i];
+          if (agent.state.alive) {
+            agent.update(dt);
+            anyActive = true;
+          }
         }
-      });
+
+        if (performance.now() - sliceStart >= FRAME_BUDGET_MS) {
+          // Repainting the field is far cheaper than simulating it, but each push runs change
+          // detection, so cap it well below the yield rate.
+          const now = performance.now();
+          if (now - lastSnapshot >= SNAPSHOT_INTERVAL_MS) {
+            this.populationSubject.next(agents);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
+          sliceStart = performance.now();
+        }
+      }
 
       // Keep running the full budget so surviving agents have time to finish long tracks.
       if (!anyActive) break;
-
-      if (step % renderEvery === 0) {
-        this.populationSubject.next(agents);
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
     }
+
     this.populationSubject.next(agents);
   }
 
