@@ -748,25 +748,70 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.restore();
   }
 
+  /**
+   * Cars are drawn at their real size in metres, derived from the car's own wheelbase.
+   *
+   * They were previously sized as a constant number of *screen* pixels (`8 / camera.scale`),
+   * which meant zooming out inflated them in track terms — at a large track's fit-to-view zoom a
+   * car came out around 10 m wide, wider than the 10 m track itself, and even at 1:1 it was
+   * roughly twice the width of a real car.
+   */
   private drawTrainingAgents() {
     if (!this.trainingAgents.length) return;
+
     const ctx = this.ctx;
+    const wheelbase = Math.max(1.5, this.settingsService.getSettings().wheelbase || 2.7);
+    // Overall length runs a little beyond the wheelbase at each end; width is a typical track.
+    const lengthM = wheelbase * 1.6;
+    const widthM = Math.max(1.6, wheelbase * 0.72);
+
+    let length = lengthM * PX_PER_M;
+    let width = widthM * PX_PER_M;
+
+    // Below a few pixels a car is unreadable, so hold a floor on apparent size when zoomed far
+    // out — but cap how far that can go, otherwise the floor reintroduces the original problem
+    // and the cars swallow the track again at extreme zoom levels.
+    const MIN_SCREEN_LENGTH = 4;
+    const MAX_BOOST = 1.8;
+    const screenLength = length * this.camera.scale;
+    if (screenLength < MIN_SCREEN_LENGTH) {
+      const boost = Math.min(MAX_BOOST, MIN_SCREEN_LENGTH / screenLength);
+      length *= boost;
+      width *= boost;
+    }
+
+    const half = length / 2;
+    const halfW = width / 2;
+    const detailed = length * this.camera.scale >= 14;
+
     ctx.save();
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.9;
 
     for (const agent of this.trainingAgents) {
       const { x, y, heading, alive } = agent.state;
-      const size = 8 / this.camera.scale;
       ctx.save();
       ctx.translate(x * PX_PER_M, y * PX_PER_M);
       ctx.rotate(heading);
       ctx.fillStyle = alive ? this.colors.agent : this.colors.agentDead;
+
       ctx.beginPath();
-      ctx.moveTo(size, 0);
-      ctx.lineTo(-size * 0.6, -size * 0.7);
-      ctx.lineTo(-size * 0.6, size * 0.7);
+      if (detailed) {
+        // Simple silhouette: tapered nose, squared tail.
+        ctx.moveTo(half, -halfW * 0.62);
+        ctx.lineTo(half * 0.55, -halfW);
+        ctx.lineTo(-half * 0.88, -halfW);
+        ctx.lineTo(-half, -halfW * 0.72);
+        ctx.lineTo(-half, halfW * 0.72);
+        ctx.lineTo(-half * 0.88, halfW);
+        ctx.lineTo(half * 0.55, halfW);
+        ctx.lineTo(half, halfW * 0.62);
+      } else {
+        // Too small for detail to survive rasterisation — a plain body is cheaper and cleaner.
+        ctx.rect(-half, -halfW, length, width);
+      }
       ctx.closePath();
       ctx.fill();
+
       ctx.restore();
     }
 
