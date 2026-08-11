@@ -447,3 +447,17 @@
 
   .telemetry { height: 34vh; }
 }
+
+.build-mode {
+  display: flex;
+  width: 100%;
+  margin-bottom: var(--sp-3);
+
+  .segmented__btn { flex: 1; }
+}
+
+/* A file input styled as a button; the input itself is hidden inside the label. */
+.file-btn {
+  cursor: pointer;
+  margin-bottom: var(--sp-3);
+}

@@ -24,6 +24,90 @@
       <ng-container *ngIf="activeTab === 'track'">
         <section class="section">
           <h3 class="section__title">
+            <span>Build Mode</span>
+            <span class="num section__meta">{{ trackLength }}</span>
+          </h3>
+          <div class="segmented build-mode">
+            <button type="button" class="segmented__btn" [class.is-active]="buildMode === 'pieces'" (click)="setBuildMode('pieces')">Pieces</button>
+            <button type="button" class="segmented__btn" [class.is-active]="buildMode === 'draw'" (click)="setBuildMode('draw')">Draw</button>
+            <button type="button" class="segmented__btn" [class.is-active]="buildMode === 'image'" (click)="setBuildMode('image')">Image</button>
+          </div>
+
+          <div class="param">
+            <label for="trackWidth">Track width</label>
+            <input id="trackWidth" type="number" min="4" max="40" step="0.5"
+                   [ngModel]="trackWidth" (ngModelChange)="setTrackWidth($event)" />
+          </div>
+        </section>
+
+        <!-- Draw -->
+        <section class="section" *ngIf="buildMode === 'draw'">
+          <h3 class="section__title">
+            <span>Draw Track</span>
+            <span class="num section__meta">{{ controlPoints.length }} pts</span>
+          </h3>
+          <p class="hint">Drag on the canvas to sketch the centreline. Click to add a single point.
+            Drag a point to move it, shift-click to delete it. Alt+drag still pans.</p>
+          <label class="toggle">
+            <input type="checkbox" [checked]="closedLoop" (change)="toggleClosedLoop()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Closed circuit</span>
+          </label>
+          <div class="btn-row">
+            <button class="btn btn--danger btn--block" (click)="clearDrawing()" [disabled]="!controlPoints.length">
+              <app-icon name="trash" [size]="14"></app-icon> Clear drawing
+            </button>
+          </div>
+        </section>
+
+        <!-- Image -->
+        <section class="section" *ngIf="buildMode === 'image'">
+          <h3 class="section__title">
+            <span>Trace Image</span>
+            <span class="section__meta">{{ underlayName || 'no image' }}</span>
+          </h3>
+
+          <label class="btn btn--ghost btn--block file-btn">
+            <app-icon name="upload" [size]="14"></app-icon> Import track image
+            <input type="file" accept="image/*" hidden (change)="onImageSelected($event)" />
+          </label>
+
+          <ng-container *ngIf="underlayImage">
+            <div class="param">
+              <label for="realLen">Real length (m)</label>
+              <input id="realLen" type="number" min="100" step="100" [(ngModel)]="realLengthMeters" />
+            </div>
+            <div class="param">
+              <label for="thr">Threshold</label>
+              <input id="thr" type="number" min="1" max="254" [(ngModel)]="traceThreshold" />
+            </div>
+            <div class="param">
+              <label for="uOpacity">Underlay</label>
+              <input id="uOpacity" type="number" min="0" max="1" step="0.05"
+                     [ngModel]="underlayOpacity" (ngModelChange)="setUnderlayOpacity($event)" />
+            </div>
+            <label class="toggle">
+              <input type="checkbox" [(ngModel)]="traceInvert" />
+              <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+              <span>Track is light on dark</span>
+            </label>
+
+            <div class="btn-row btn-row--stack">
+              <button class="btn btn--block" (click)="runTrace()" [disabled]="tracing">
+                <app-icon name="track" [size]="14"></app-icon> {{ tracing ? 'Tracing…' : 'Trace to track' }}
+              </button>
+              <button class="btn btn--ghost btn--block" (click)="clearUnderlay()">
+                <app-icon name="trash" [size]="14"></app-icon> Remove image
+              </button>
+            </div>
+            <p class="hint">After tracing, switch to <strong>Draw</strong> to nudge any point the tracer got wrong.</p>
+          </ng-container>
+
+          <p class="hint models__notice--error" *ngIf="traceError">{{ traceError }}</p>
+        </section>
+
+        <section class="section" *ngIf="buildMode === 'pieces'">
+          <h3 class="section__title">
             <span>Track Pieces</span>
             <span class="num section__meta">{{ segmentCount }} · {{ trackLength }}</span>
           </h3>
@@ -66,7 +150,7 @@
           </div>
         </section>
 
-        <section class="section">
+        <section class="section" *ngIf="buildMode === 'pieces'">
           <h3 class="section__title">Presets</h3>
           <button
             *ngFor="let preset of trackPresets"

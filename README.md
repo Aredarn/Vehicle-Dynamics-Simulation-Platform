@@ -1,22 +1,45 @@
 # VDSP
-Simulation of a racecar in Angular/TS
+
+Simulation of a racecar in Angular/TS.
+
 ## Motivation
 
-This project is for myself to learn a bit more physics and get more experience. The purpose of this web-app is to simulate a specified car around a user-created track.
+This project is for myself to learn a bit more physics and get more experience. The purpose of
+this web-app is to simulate a specified car around a user-created track — and to have an AI
+learn to drive that track as fast as it can, using trail braking and a proper racing line.
 
-**These attributes are these at the moment:**
-- Weight (Kg)
-- Engine Power output (Kw)
-- Drag Coefficient
-- Frontal area (width*height of the car in m<sup>2</sup>)
-- Tire grip (μ)
-- Downforce (N)
-- Final drive ratio (NOT YET WORKING)
-- Wheelbase (in meter NOT YET WORKING)
+**Car attributes:**
+
+| Attribute | Unit | What it affects |
+|---|---|---|
+| Weight | kg | Inertia, tyre load, weight transfer |
+| Engine power output | kW | Available drive force (power-limited at speed) |
+| Drag coefficient | – | Aerodynamic drag |
+| Frontal area | m² | Aerodynamic drag |
+| Tire grip | μ | The whole friction budget — braking, traction and cornering |
+| Downforce | N | Extra tyre load, so more grip without more mass |
+| Final drive ratio | – | Scales drive force at the wheels |
+| Wheelbase | m | Weight transfer geometry, and the drawn size of the car |
+
+<img width="1919" height="1028" alt="VDSP screenshot" src="https://github.com/user-attachments/assets/f71a047a-a172-433f-b11a-5ba0bc3d0ecd" />
+
+## Features
+
+- **Three ways to build a track**
+  - **Pieces** — drag straights and corners onto the canvas for quick blocking-out.
+  - **Draw** — sketch the centreline freehand; the stroke becomes editable control points you can
+    drag, insert or delete. Any shape, any corner angle.
+  - **Image** — import a circuit map (Nordschleife, an F1 layout, a hand sketch) and trace it
+    automatically, then fix up any point by hand.
+- **Adjustable track width**, because real circuits vary a lot.
+- **AI training** — a genetic algorithm evolves a small neural network to drive the lap.
+- **Model library** — save any generation as a reusable model, export/import it as a file,
+  continue training it on a *different* track, and compare models head-to-head on one layout.
+- **Telemetry** — fitness, lap time and survival charted over generations, with run comparison.
+- **Light / dark theme**, following your system setting by default.
 
 <img width="1919" height="1033" alt="Képernyőkép 2026-07-29 130328" src="https://github.com/user-attachments/assets/f76fb3fd-eb33-4c3e-a461-10dfc9bcb31b" />
 
-## How to use (Inside powershell):
 1. Download the code using Git
 ```console
 git clone https://github.com/Aredarn/Vehicle-Dynamics-Simulation-Platform.git
@@ -33,7 +56,7 @@ npm install -g @angular/cli
 ```console
 cd C:\YOUR_FILE_LOCATION\Vehicle-Dynamics-Simulation-Platform
 ```
-5. start the server:
+5. Start the server:
 ```console
 ng serve
 ```
