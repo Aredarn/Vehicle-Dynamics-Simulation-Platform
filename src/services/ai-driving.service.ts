@@ -2,9 +2,9 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome, AI_INPUT_COUNT, AI_HIDDEN_SIZE } from '../models/CarAgent';
-import { Segment } from '../models/Track';
 import { RacingLinePoint } from '../interfaces/car-state';
-import { buildTrackPath, getTrackLength } from '../utils/track-utils';
+import { getTrackLength } from '../utils/track-utils';
+import { TrackModel } from '../utils/track-geometry';
 import { calculatePerformance } from '../utils/car-physics';
 import { weightCount, outputBiasIndex } from '../utils/neural-policy';
 import { RacingLineOptimizerService } from './racing-line-optimizer.service';
@@ -138,9 +138,9 @@ export class AIDrivingService {
 
   async train(
     settings: CarSettings,
-    segments: Segment[],
+    trackModel: TrackModel,
     config: AILearningConfig,
-    trackLabel = 'Custom Track'
+    trackLabel = trackModel.label
   ): Promise<{ bestAgents: CarAgent[]; bestGenome: AgentGenome | null }> {
     // A second concurrent run would interleave its generations into the same stats/population
     // streams as the first, making the reported progress of both incoherent.
@@ -155,17 +155,13 @@ export class AIDrivingService {
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
 
-    // Freeze the layout for the whole run. The caller hands us the live array the track builder
-    // mutates in place (adding a piece or undoing one), and every generation re-reads it — so an
-    // edit mid-run silently changed trackLength underneath the agents. Because progressRatio is
-    // measured against that length, the same driving suddenly scored far lower and the reported
-    // best fitness collapsed, while the reference line below still described the old layout.
-    const track: Segment[] = segments.map(segment => ({
-      ...segment,
-      position: { ...segment.position },
-    }));
+    // Freeze the layout for the whole run. The editor rebuilds its model on every change, but
+    // snapshotting here keeps a run immune to edits regardless: an edit mid-run would otherwise
+    // change trackLength underneath the agents, and because progressRatio is measured against
+    // that length the same driving would suddenly score far lower.
+    const track: TrackModel = { ...trackModel, points: trackModel.points.map(p => ({ ...p })) };
 
-    const centerline = buildTrackPath(track, 2);
+    const centerline = track.points;
     const trackLength = getTrackLength(centerline);
     const perf = calculatePerformance(settings);
     const topSpeedMs = Math.max(8, perf.topSpeed / 3.6);
@@ -342,9 +338,9 @@ export class AIDrivingService {
    * `simulateAgents` uses for large populations; one agent per call is cheap enough to just run
    * to completion, yielding occasionally so a long track doesn't block the UI.
    */
-  async runGenomeOnTrack(weights: number[], settings: CarSettings, segments: Segment[]): Promise<ModelRunResult> {
-    const track: Segment[] = segments.map(segment => ({ ...segment, position: { ...segment.position } }));
-    const centerline = buildTrackPath(track, 2);
+  async runGenomeOnTrack(weights: number[], settings: CarSettings, trackModel: TrackModel): Promise<ModelRunResult> {
+    const track: TrackModel = { ...trackModel, points: trackModel.points.map(p => ({ ...p })) };
+    const centerline = track.points;
     const trackLength = getTrackLength(centerline);
     const perf = calculatePerformance(settings);
     const topSpeedMs = Math.max(8, perf.topSpeed / 3.6);

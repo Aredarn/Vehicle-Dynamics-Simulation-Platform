@@ -1,7 +1,7 @@
 import { CarState, RacingLinePoint } from "../interfaces/car-state";
 import { CarSettings } from "../services/car-settings.service";
 import { calculateCorneringSpeedLimit, calculateLongitudinalAcceleration, calculatePerformance } from "../utils/car-physics";
-import { Segment } from "./Track";
+import { TrackModel } from "../utils/track-geometry";
 
 export class Car {
     mass!: number;
@@ -108,8 +108,8 @@ export class Car {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    update(dt: number, track: Segment[]) {
-        if (!track.length) {
+    update(dt: number, track: TrackModel | null) {
+        if (!track || !track.points.length) {
             this.currentRacingLine = [];
             this.state.s = 0;
             this.state.speed = 0;
@@ -206,101 +206,13 @@ export class Car {
         return { x, y, heading };
     }
 
-    computeRacingLine(track: Segment[]): RacingLinePoint[] {
-        if (track.length === 0) return [];
-
-        const racingLine: RacingLinePoint[] = [];
-        let totalS = 0;
-        let prevPoint: { x: number; y: number } | null = null;
-
-        for (const seg of track) {
-            const segLength = this.getSegmentLength(seg);
-            const steps = Math.max(20, Math.ceil(segLength * 2));
-
-            for (let i = 0; i <= steps; i++) {
-                const distance = (i / steps) * segLength;
-                const point = this.computeCenterPoint(seg, distance);
-
-                if (prevPoint) {
-                    const dx = point.x - prevPoint.x;
-                    const dy = point.y - prevPoint.y;
-                    totalS += Math.sqrt(dx * dx + dy * dy);
-                }
-
-                racingLine.push({
-                    x: point.x,
-                    y: point.y,
-                    heading: point.heading,
-                    s: totalS
-                });
-
-                prevPoint = point;
-            }
-        }
-
-        return this.smoothRacingLine(racingLine);
+    /**
+     * The unified track model already carries a uniformly resampled centreline, so this is now
+     * just a copy — the per-segment arc sampling it used to do lives in the track builder.
+     */
+    computeRacingLine(track: TrackModel | null): RacingLinePoint[] {
+        if (!track || track.points.length === 0) return [];
+        return track.points.map(p => ({ ...p }));
     }
 
-    private computeCenterPoint(seg: Segment, distance: number): { x: number; y: number; heading: number } {
-        if (seg.type === 'straight' || seg.type === 'start') {
-            const x = seg.position.x + distance * Math.cos(seg.heading);
-            const y = seg.position.y + distance * Math.sin(seg.heading);
-            return { x, y, heading: seg.heading };
-        }
-
-        if (seg.type.startsWith('curve')) {
-            const R = seg.radius ?? 60;
-            const angleDeg = seg.angle ?? 90;
-            const angleRad = angleDeg * Math.PI / 180;
-            const turnDirection = Math.sign(angleDeg);
-
-            const cx = seg.position.x - turnDirection * R * Math.sin(seg.heading);
-            const cy = seg.position.y + turnDirection * R * Math.cos(seg.heading);
-
-            const startAngle = Math.atan2(seg.position.y - cy, seg.position.x - cx);
-            const arcLength = R * Math.abs(angleRad);
-            const arcFraction = distance / Math.max(arcLength, 0.001);
-            const endAngle = startAngle + turnDirection * arcFraction * Math.abs(angleRad);
-
-            const x = cx + R * Math.cos(endAngle);
-            const y = cy + R * Math.sin(endAngle);
-            const heading = seg.heading + turnDirection * arcFraction * Math.abs(angleRad);
-
-            return { x, y, heading };
-        }
-
-        return { x: seg.position.x, y: seg.position.y, heading: seg.heading };
-    }
-
-    private getSegmentLength(seg: Segment): number {
-        if (seg.type === 'straight' || seg.type === 'start') return seg.length ?? 100;
-        if (seg.type.startsWith('curve')) {
-            const angleRad = Math.abs((seg.angle ?? 90) * Math.PI / 180);
-            return (seg.radius ?? 60) * angleRad;
-        }
-        return 100;
-    }
-
-    private smoothRacingLine(points: RacingLinePoint[]): RacingLinePoint[] {
-        if (points.length < 3) return points;
-
-        let smoothed = [...points];
-
-        for (let pass = 0; pass < 2; pass++) {
-            const newPoints = [...smoothed];
-
-            for (let i = 1; i < smoothed.length - 1; i++) {
-                newPoints[i] = {
-                    x: smoothed[i - 1].x * 0.25 + smoothed[i].x * 0.5 + smoothed[i + 1].x * 0.25,
-                    y: smoothed[i - 1].y * 0.25 + smoothed[i].y * 0.5 + smoothed[i + 1].y * 0.25,
-                    heading: smoothed[i].heading,
-                    s: smoothed[i].s
-                };
-            }
-
-            smoothed = newPoints;
-        }
-
-        return smoothed;
-    }
 }

@@ -11,10 +11,15 @@ import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
+import {
+  TrackModel, createTrackModel, trackFromSegments, DEFAULT_TRACK_HALF_WIDTH,
+  simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2,
+} from '../../utils/track-geometry';
 import { IconComponent } from '../icon/icon.component';
 import { CarSettingsComponent } from '../car-settings/car-settings.component';
 import { ResultsPanelComponent } from '../results-panel/results-panel.component';
 import { ModelCompareComponent, ModelComparisonResult } from '../model-compare/model-compare.component';
+import { TrackTracerService } from '../../services/track-tracer.service';
 
 const roadWidth = 30;
 const PX_PER_M = 3;
@@ -26,6 +31,8 @@ interface Camera {
 }
 
 type SidebarTab = 'car' | 'track' | 'training';
+/** How the track is being authored. Pieces stay for quick blocking-out; the others are free-form. */
+export type BuildMode = 'pieces' | 'draw' | 'image';
 
 /** Canvas colours resolved from CSS custom properties so the track follows the theme. */
 interface CanvasTheme {
@@ -81,6 +88,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     private lineOptimizer: RacingLineOptimizerService,
     private aiDrivingService: AIDrivingService,
     private themeService: ThemeService,
+    private tracer: TrackTracerService,
   ) {}
 
   activeTab: SidebarTab = 'track';
@@ -115,6 +123,31 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private animationFrameId: number | null = null;
 
   segments: Segment[] = [];
+  /** The single source of truth for simulation and rendering, whatever built it. */
+  track: TrackModel | null = null;
+  /** Full track width in metres — real circuits vary far more than the old fixed 10 m. */
+  trackWidth = DEFAULT_TRACK_HALF_WIDTH * 2;
+
+  buildMode: BuildMode = 'pieces';
+
+  /** Editable control points behind a drawn/traced track. */
+  controlPoints: Vec2[] = [];
+  closedLoop = true;
+  private isDrawing = false;
+  private strokePoints: Vec2[] = [];
+  private draggingPointIndex = -1;
+
+  /** Imported reference image, drawn under the track in world space. */
+  underlayImage: HTMLImageElement | null = null;
+  underlayName = '';
+  underlayOpacity = 0.45;
+  underlayScale = 1;
+  traceThreshold = 128;
+  traceInvert = false;
+  realLengthMeters = 3000;
+  tracing = false;
+  traceError: string | null = null;
+
   private dragPreview: any = null;
   previewTurnRight = false;
   private ctx!: CanvasRenderingContext2D;
@@ -396,22 +429,21 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private getTrackBoundingBox(): { minX: number; minY: number; maxX: number; maxY: number } | null {
-    if (this.segments.length === 0) return null;
+    const pts = this.track?.points;
+    if (!pts || pts.length === 0) return null;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    for (const seg of this.segments) {
-      const end = this.computeEndOf(seg);
-      minX = Math.min(minX, seg.position.x, end.x);
-      minY = Math.min(minY, seg.position.y, end.y);
-      maxX = Math.max(maxX, seg.position.x, end.x);
-      maxY = Math.max(maxY, seg.position.y, end.y);
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
     }
-
     return { minX, minY, maxX, maxY };
   }
 
   onCanvasMouseDown(event: MouseEvent) {
+    if (this.onFreeformMouseDown(event)) return;
     if (event.button === 1 || event.button === 2 || event.altKey) {
       event.preventDefault();
       this.isPanning = true;
@@ -421,6 +453,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   onCanvasMouseMove(event: MouseEvent) {
+    if (!this.isPanning && this.onFreeformMouseMove(event)) return;
     if (!this.isPanning) return;
     const dx = event.clientX - this.panStart.x;
     const dy = event.clientY - this.panStart.y;
@@ -430,6 +463,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   onCanvasMouseUp() {
+    this.onFreeformMouseUp();
     this.isPanning = false;
   }
 
@@ -624,7 +658,42 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private onTrackChanged() {
     // Any edit invalidates comparison lines drawn for the previous layout.
     this.clearComparisonState();
+    this.rebuildTrackFromSegments();
     this.updateRacingLine();
+    this.requestRedraw();
+  }
+
+  /** Piece edits feed the unified model; drawn/traced tracks set `track` directly instead. */
+  private rebuildTrackFromSegments() {
+    this.track = this.segments.length
+      ? trackFromSegments(this.segments, this.trackWidth / 2, this.currentTrackLabel)
+      : null;
+  }
+
+  setTrackWidth(width: number) {
+    this.trackWidth = Math.max(4, Math.min(40, Number(width) || 10));
+    if (!this.track) return;
+    // Width is part of the geometry, so the model (and its cached spatial index) is rebuilt.
+    this.track = { ...this.track, points: this.track.points, halfWidth: this.trackWidth / 2 };
+    this.clearComparisonState();
+    this.updateRacingLine();
+    this.requestRedraw();
+  }
+
+  /** Installs a free-form centreline (drawn or traced) as the active track. */
+  private applyTrackPoints(points: Vec2[], label: string, closed: boolean, source: 'drawn' | 'traced') {
+    if (points.length < 2) return;
+    this.segments = [];
+    this.currentTrackLabel = label;
+    this.track = createTrackModel(points, {
+      halfWidth: this.trackWidth / 2,
+      closed,
+      source,
+      label,
+    });
+    this.clearComparisonState();
+    this.updateRacingLine();
+    this.fitTrackToView();
     this.requestRedraw();
   }
 
@@ -702,7 +771,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     }
 
     try {
-      const centerline = this.car.computeRacingLine(this.segments);
+      const centerline = this.car.computeRacingLine(this.track);
 
       if (this.useOptimizedLine && centerline.length >= 2) {
         const optimized = this.lineOptimizer.optimize(centerline, this.settingsService.getSettings());
@@ -750,15 +819,19 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.scale(this.camera.scale, this.camera.scale);
 
     this.drawGrid(40);
+    this.drawUnderlay();
 
-    for (const s of this.segments) this.drawSegment(s);
+    this.drawTrackSurface();
     this.drawRacingLine();
     this.drawComparisonLines();
     this.drawTrainingAgents();
 
+    this.drawAuthoringOverlay();
+
     if (this.dragPreview && this.segments.length) {
       const last = this.segments[this.segments.length - 1];
-      this.drawSegment(this.buildNextFrom(last, this.dragPreview, this.previewTurnRight), true);
+      const ghost = trackFromSegments([this.buildNextFrom(last, this.dragPreview, this.previewTurnRight)], this.trackWidth / 2);
+      this.drawTrackSurface(ghost, true);
     }
 
     ctx.restore();
@@ -911,115 +984,335 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.restore();
   }
 
-  private drawSegment(seg: Segment, ghost = false) {
-    if (seg.type === 'start') return this.drawStart(seg, ghost);
-    if (seg.type === 'straight') return this.drawStraight(seg, ghost);
-    if (['curve30', 'curve45', 'curve60', 'curve90', 'curve120', 'curve180'].includes(seg.type)) return this.drawCurve(seg, ghost);
-  }
-
-  private drawStart(seg: Segment, ghost = false) {
+  /** Imported reference image, positioned in world space under the track. */
+  private drawUnderlay() {
+    if (!this.underlayImage || this.buildMode !== 'image') return;
     const ctx = this.ctx;
-    const startLength = (seg.length ?? 40) * PX_PER_M;
+    const w = this.underlayImage.naturalWidth * this.underlayScale * PX_PER_M;
+    const h = this.underlayImage.naturalHeight * this.underlayScale * PX_PER_M;
 
     ctx.save();
-    ctx.translate(seg.position.x * PX_PER_M, seg.position.y * PX_PER_M);
-    ctx.rotate(seg.heading);
-    ctx.globalAlpha = ghost ? 0.4 : 1;
+    ctx.globalAlpha = this.underlayOpacity;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.underlayImage, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
 
-    ctx.fillStyle = this.colors.road;
-    ctx.fillRect(0, -roadWidth / 2, startLength, roadWidth);
-    ctx.fillStyle = this.colors.roadEdge;
-    ctx.fillRect(0, -roadWidth / 2, startLength, 1.5);
-    ctx.fillRect(0, roadWidth / 2 - 1.5, startLength, 1.5);
+  /** The in-progress stroke and the draggable control points behind a free-form track. */
+  private drawAuthoringOverlay() {
+    if (!this.isFreeform) return;
+    const ctx = this.ctx;
 
-    const checkSize = 6;
-    for (let i = 0; i < Math.ceil(roadWidth / checkSize); i++) {
-      for (let j = 0; j < Math.ceil(startLength / checkSize); j++) {
-        ctx.fillStyle = (i + j) % 2 === 0 ? this.colors.kerbA : this.colors.kerbB;
-        ctx.fillRect(j * checkSize, -roadWidth / 2 + i * checkSize, checkSize, checkSize);
+    if (this.strokePoints.length > 1) {
+      ctx.save();
+      ctx.strokeStyle = this.colors.line;
+      ctx.lineWidth = 2 / this.camera.scale;
+      ctx.setLineDash([6 / this.camera.scale, 4 / this.camera.scale]);
+      ctx.beginPath();
+      ctx.moveTo(this.strokePoints[0].x * PX_PER_M, this.strokePoints[0].y * PX_PER_M);
+      for (let i = 1; i < this.strokePoints.length; i++) {
+        ctx.lineTo(this.strokePoints[i].x * PX_PER_M, this.strokePoints[i].y * PX_PER_M);
       }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
     }
 
+    if (!this.controlPoints.length) return;
+    const r = 4 / this.camera.scale;
+    ctx.save();
+    ctx.lineWidth = 1.5 / this.camera.scale;
+    for (let i = 0; i < this.controlPoints.length; i++) {
+      const p = this.controlPoints[i];
+      ctx.beginPath();
+      ctx.arc(p.x * PX_PER_M, p.y * PX_PER_M, r, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? this.colors.line : this.colors.roadEdge;
+      ctx.fill();
+      ctx.strokeStyle = this.colors.text;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
-  private drawStraight(seg: Segment, ghost = false) {
+  /**
+   * Paints a track as a stroked centreline rather than piece by piece.
+   *
+   * This is what lets an arbitrary shape render at all: a drawn or traced circuit has no
+   * "segments" to iterate. Stroking once with round joins also removes the notches the old
+   * per-piece fills left at every joint, and is far cheaper than filling thousands of quads on
+   * a long circuit.
+   */
+  private drawTrackSurface(model: TrackModel | null = this.track, ghost = false) {
+    if (!model || model.points.length < 2) return;
+
     const ctx = this.ctx;
-    const L = (seg.length ?? 0) * PX_PER_M;
+    const widthPx = model.halfWidth * 2 * PX_PER_M;
+    const edgePx = 3 / this.camera.scale;
 
     ctx.save();
-    ctx.translate(seg.position.x * PX_PER_M, seg.position.y * PX_PER_M);
-    ctx.rotate(seg.heading);
     ctx.globalAlpha = ghost ? 0.4 : 1;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
 
-    ctx.fillStyle = this.colors.road;
-    ctx.fillRect(0, -roadWidth / 2, L, roadWidth);
-
-    ctx.strokeStyle = this.colors.roadEdge;
-    ctx.lineWidth = 1.5 / this.camera.scale;
     ctx.beginPath();
-    ctx.moveTo(0, -roadWidth / 2);
-    ctx.lineTo(L, -roadWidth / 2);
-    ctx.moveTo(0, roadWidth / 2);
-    ctx.lineTo(L, roadWidth / 2);
+    ctx.moveTo(model.points[0].x * PX_PER_M, model.points[0].y * PX_PER_M);
+    for (let i = 1; i < model.points.length; i++) {
+      ctx.lineTo(model.points[i].x * PX_PER_M, model.points[i].y * PX_PER_M);
+    }
+    if (model.closed) ctx.closePath();
+
+    // Edge lines come free by stroking a wider path underneath the road colour.
+    ctx.strokeStyle = this.colors.roadEdge;
+    ctx.lineWidth = widthPx + edgePx * 2;
+    ctx.stroke();
+
+    ctx.strokeStyle = this.colors.road;
+    ctx.lineWidth = widthPx;
     ctx.stroke();
 
     ctx.strokeStyle = this.colors.centerline;
     ctx.lineWidth = 1 / this.camera.scale;
-    ctx.setLineDash([14, 12]);
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(L, 0);
+    ctx.setLineDash([12 / this.camera.scale, 10 / this.camera.scale]);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    if (!ghost) this.drawStartFinish(model, widthPx);
     ctx.restore();
   }
 
-  private drawCurve(seg: Segment, ghost = false) {
+  /** Chequered bar across the track at s = 0. */
+  private drawStartFinish(model: TrackModel, widthPx: number) {
     const ctx = this.ctx;
-    const R = (seg.radius ?? 6) * PX_PER_M;
-    const angleRad = (seg.angle ?? 90) * Math.PI / 180;
-    const turnDirection = Math.sign(seg.angle ?? 90);
-    const x0 = seg.position.x * PX_PER_M;
-    const y0 = seg.position.y * PX_PER_M;
-    const cx = x0 - turnDirection * R * Math.sin(seg.heading);
-    const cy = y0 + turnDirection * R * Math.cos(seg.heading);
-    const startAngle = Math.atan2(y0 - cy, x0 - cx);
-    const endAngle = startAngle + angleRad;
+    const start = model.points[0];
+    const barLength = Math.max(4, widthPx * 0.16);
+    const cell = Math.max(2, widthPx / 8);
 
     ctx.save();
-    ctx.globalAlpha = ghost ? 0.4 : 1;
+    ctx.translate(start.x * PX_PER_M, start.y * PX_PER_M);
+    ctx.rotate(start.heading);
 
-    ctx.fillStyle = this.colors.road;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
-    ctx.arc(cx, cy, R - roadWidth / 2, endAngle, startAngle, angleRad >= 0);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = this.colors.roadEdge;
-    ctx.lineWidth = 1.5 / this.camera.scale;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R + roadWidth / 2, startAngle, endAngle, angleRad < 0);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, R - roadWidth / 2, startAngle, endAngle, angleRad < 0);
-    ctx.stroke();
-
-    ctx.strokeStyle = this.colors.centerline;
-    ctx.lineWidth = 1 / this.camera.scale;
-    ctx.setLineDash([10, 9]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, startAngle, endAngle, angleRad < 0);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    const rows = Math.max(1, Math.round(widthPx / cell));
+    const cols = Math.max(1, Math.round(barLength / cell));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        ctx.fillStyle = (r + c) % 2 === 0 ? this.colors.kerbA : this.colors.kerbB;
+        ctx.fillRect(c * cell, -widthPx / 2 + r * cell, cell, cell);
+      }
+    }
     ctx.restore();
+  }
+
+  // ---------- Free-form authoring ----------
+
+  setBuildMode(mode: BuildMode) {
+    this.buildMode = mode;
+    this.requestRedraw();
+  }
+
+  get isFreeform(): boolean {
+    return this.buildMode !== 'pieces';
+  }
+
+  get canEditPoints(): boolean {
+    return this.isFreeform && this.controlPoints.length > 1;
+  }
+
+  /** Rebuilds the track from the current control points, fitting a smooth curve through them. */
+  private rebuildFromControlPoints(fit = true) {
+    if (this.controlPoints.length < 2) {
+      this.track = null;
+      this.racingLine = [];
+      this.requestRedraw();
+      return;
+    }
+    const curve = fit && this.controlPoints.length > 2
+      ? splineThroughPoints(this.controlPoints, this.closedLoop, 10)
+      : this.controlPoints;
+    this.applyTrackPoints(curve, this.currentTrackLabel, this.closedLoop, this.track?.source === 'traced' ? 'traced' : 'drawn');
+  }
+
+  toggleClosedLoop() {
+    this.closedLoop = !this.closedLoop;
+    this.rebuildFromControlPoints();
+  }
+
+  clearDrawing() {
+    this.controlPoints = [];
+    this.track = null;
+    this.racingLine = [];
+    this.clearComparisonState();
+    this.requestRedraw();
+  }
+
+  // --- pointer handling for draw/edit ---
+
+  /** Index of a control point under the cursor, or -1. Radius is in screen pixels. */
+  private pointAt(world: Vec2): number {
+    const tolerance = 9 / this.camera.scale / PX_PER_M;
+    for (let i = 0; i < this.controlPoints.length; i++) {
+      if (Math.hypot(this.controlPoints[i].x - world.x, this.controlPoints[i].y - world.y) <= tolerance) return i;
+    }
+    return -1;
+  }
+
+  onFreeformMouseDown(event: MouseEvent): boolean {
+    if (!this.isFreeform || event.button !== 0 || event.altKey) return false;
+    const world = this.eventToWorld(event);
+
+    const hit = this.pointAt(world);
+    if (hit !== -1) {
+      // Shift-click removes a point; otherwise start dragging it.
+      if (event.shiftKey) {
+        this.controlPoints.splice(hit, 1);
+        this.rebuildFromControlPoints();
+      } else {
+        this.draggingPointIndex = hit;
+      }
+      return true;
+    }
+
+    this.isDrawing = true;
+    this.strokePoints = [world];
+    return true;
+  }
+
+  onFreeformMouseMove(event: MouseEvent): boolean {
+    if (!this.isFreeform) return false;
+    const world = this.eventToWorld(event);
+
+    if (this.draggingPointIndex !== -1) {
+      this.controlPoints[this.draggingPointIndex] = world;
+      this.rebuildFromControlPoints();
+      return true;
+    }
+
+    if (this.isDrawing) {
+      const last = this.strokePoints[this.strokePoints.length - 1];
+      // Thin the raw stream; a mouse emits far more samples than the shape needs.
+      if (!last || Math.hypot(world.x - last.x, world.y - last.y) > 1.5) {
+        this.strokePoints.push(world);
+        this.requestRedraw();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  onFreeformMouseUp(): boolean {
+    if (!this.isFreeform) return false;
+
+    if (this.draggingPointIndex !== -1) {
+      this.draggingPointIndex = -1;
+      return true;
+    }
+
+    if (!this.isDrawing) return false;
+    this.isDrawing = false;
+
+    if (this.strokePoints.length < 3) {
+      // A click rather than a stroke: append a single control point.
+      if (this.strokePoints.length === 1) {
+        this.controlPoints.push(this.strokePoints[0]);
+        this.rebuildFromControlPoints();
+      }
+      this.strokePoints = [];
+      return true;
+    }
+
+    // A freehand stroke becomes control points, so it stays editable afterwards.
+    const simplified = simplifyPath(this.strokePoints, 2.5);
+    this.controlPoints = this.controlPoints.length
+      ? [...this.controlPoints, ...simplified]
+      : simplified;
+    this.strokePoints = [];
+    this.currentTrackLabel = this.currentTrackLabel === 'Custom Track' ? 'Drawn Track' : this.currentTrackLabel;
+    this.rebuildFromControlPoints();
+    return true;
+  }
+
+  private eventToWorld(event: MouseEvent): Vec2 {
+    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+    return this.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+  }
+
+  // ---------- Image import & tracing ----------
+
+  async onImageSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    this.traceError = null;
+    try {
+      this.underlayImage = await this.loadImage(file);
+      this.underlayName = file.name;
+      this.buildMode = 'image';
+      this.fitUnderlayToView();
+      this.requestRedraw();
+    } catch {
+      this.traceError = `Could not read "${file.name}" as an image.`;
+    }
+  }
+
+  private loadImage(file: File): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+  }
+
+  /** Sizes the underlay so it roughly fills the current view, in world metres. */
+  private fitUnderlayToView() {
+    if (!this.underlayImage) return;
+    const worldWidth = this.viewWidth / this.camera.scale / PX_PER_M;
+    this.underlayScale = worldWidth / Math.max(1, this.underlayImage.naturalWidth) * 0.8;
+  }
+
+  async runTrace() {
+    if (!this.underlayImage || this.tracing) return;
+    this.tracing = true;
+    this.traceError = null;
+
+    try {
+      const result = await this.tracer.trace(this.underlayImage, {
+        threshold: this.traceThreshold,
+        invert: this.traceInvert,
+        realLengthMeters: this.realLengthMeters,
+      });
+
+      // The traced path becomes editable control points, so a bad corner can be dragged out
+      // rather than forcing a re-trace.
+      this.controlPoints = simplifyPath(result.points, 4);
+      this.closedLoop = result.closed;
+      this.currentTrackLabel = this.underlayName.replace(/\.[^.]+$/, '') || 'Traced Track';
+      this.applyTrackPoints(result.points, this.currentTrackLabel, result.closed, 'traced');
+    } catch (err) {
+      this.traceError = err instanceof Error ? err.message : 'Tracing failed.';
+    } finally {
+      this.tracing = false;
+    }
+  }
+
+  setUnderlayOpacity(value: number) {
+    this.underlayOpacity = Math.max(0, Math.min(1, Number(value) || 0));
+    this.requestRedraw();
+  }
+
+  clearUnderlay() {
+    this.underlayImage = null;
+    this.underlayName = '';
+    this.traceError = null;
+    this.requestRedraw();
   }
 
   // ---------- Simulation Control ----------
   async startAITraining() {
-    if (this.segments.length < 2 || this.segments[0].type !== 'start') {
-      alert('You need a Start piece and at least one track segment.');
+    if (!this.track || this.track.points.length < 2) {
+      alert('Build, draw or import a track first.');
       return;
     }
 
@@ -1027,9 +1320,10 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.aiStats = { ...this.aiStats, active: true };
     this.aiDrivingService.clearHistory();
 
+    if (!this.track) return;
     const result = await this.aiDrivingService.train(
       this.settingsService.getSettings(),
-      this.segments,
+      this.track,
       { ...this.aiConfig, seedWeights: this.seedModel?.weights ?? null },
       this.currentTrackLabel
     );
@@ -1062,13 +1356,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
    * different settings or on different tracks can be compared directly on one layout.
    */
   async onRunModelComparison(entries: Array<{ model: SavedCarModel; color: string }>) {
-    if (this.isTraining || this.comparisonRunning || !this.segments.length) return;
+    if (this.isTraining || this.comparisonRunning || !this.track) return;
 
     this.comparisonRunning = true;
     this.comparisonLines = [];
 
     for (const { model, color } of entries) {
-      const result = await this.aiDrivingService.runGenomeOnTrack(model.weights, model.carSettings, this.segments);
+      const result = await this.aiDrivingService.runGenomeOnTrack(model.weights, model.carSettings, this.track!);
       this.comparisonResults = {
         ...this.comparisonResults,
         [model.id]: { lapTime: result.lapTime, progress: result.progress, completed: result.completed },
@@ -1082,6 +1376,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   clearTrack() {
     this.segments = [];
+    this.track = null;
     this.racingLine = [];
     this.estimatedLapTime = 0;
     this.currentTrackLabel = 'Custom Track';

@@ -1,13 +1,10 @@
 import { RacingLinePoint } from '../interfaces/car-state';
-import { Segment } from './Track';
 import {
   normalizeAngle,
-  getTrackPathCached,
   closestPointOnPath,
   closestPointOnPathNear,
-  rayDistanceToTrackEdge,
-  distanceBeyondTrackEdge,
 } from '../utils/track-utils';
+import { TrackModel, distanceBeyondEdge, rayDistanceToEdge } from '../utils/track-geometry';
 import { CarSettings } from '../services/car-settings.service';
 import {
   calculateCorneringSpeedLimit,
@@ -49,7 +46,7 @@ export class CarAgent {
   };
 
   trackPath: RacingLinePoint[] = [];
-  trackSegments: Segment[] = [];
+  track!: TrackModel;
   trackLength = 0;
   maxProgress = 0;
   completedLap = false;
@@ -84,10 +81,10 @@ export class CarAgent {
     this.maxSpeed = Math.max(8, perf.topSpeed / 3.6);
   }
 
-  reset(segments: Segment[], optimalLine: RacingLinePoint[] = [], optimalLapTime = 0) {
+  reset(track: TrackModel, optimalLine: RacingLinePoint[] = [], optimalLapTime = 0) {
     this.driving = getDrivingCharacteristics(this.settings);
-    this.trackSegments = segments;
-    this.trackPath = getTrackPathCached(segments, 2);
+    this.track = track;
+    this.trackPath = track.points;
     this.trackLength = this.trackPath.length ? this.trackPath[this.trackPath.length - 1].s : 0;
     this.optimalLine = optimalLine;
     this.optimalLapTime = optimalLapTime;
@@ -133,7 +130,7 @@ export class CarAgent {
   }
 
   update(dt: number) {
-    if (!this.state.alive || this.completedLap || !this.trackSegments.length) return;
+    if (!this.state.alive || this.completedLap || !this.trackPath.length) return;
 
     const sensors = this.computeSensors();
     // The car has not moved since the previous step ended, so that step's projection is still
@@ -165,9 +162,9 @@ export class CarAgent {
 
     // The car has not moved since the previous step measured this exact position, so reuse that
     // result instead of re-scanning the whole track.
-    const beyondEdgeBefore = this.lastBeyondEdge ?? distanceBeyondTrackEdge(
+    const beyondEdgeBefore = this.lastBeyondEdge ?? distanceBeyondEdge(
       { x: this.state.x, y: this.state.y },
-      this.trackSegments,
+      this.track,
       this.driving.carRadius
     );
     const gripMultiplier = this.computeGripMultiplier(beyondEdgeBefore);
@@ -205,9 +202,9 @@ export class CarAgent {
       this.trajectory.push({ x: this.state.x, y: this.state.y, heading: this.state.heading, s: closestAfter.s });
     }
 
-    const beyondEdgeAfter = distanceBeyondTrackEdge(
+    const beyondEdgeAfter = distanceBeyondEdge(
       { x: this.state.x, y: this.state.y },
-      this.trackSegments,
+      this.track,
       this.driving.carRadius
     );
     const onTrack = beyondEdgeAfter <= 0.01;
@@ -418,10 +415,10 @@ export class CarAgent {
     const maxDist = this.driving.sensorRange;
     return angles.map(angle => {
       const heading = this.state.heading + angle;
-      const rawDistance = rayDistanceToTrackEdge(
+      const rawDistance = rayDistanceToEdge(
         { x: this.state.x, y: this.state.y },
         heading,
-        this.trackSegments,
+        this.track,
         maxDist,
         0.5,
         this.driving.carRadius
