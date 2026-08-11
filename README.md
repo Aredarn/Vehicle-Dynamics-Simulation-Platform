@@ -38,7 +38,7 @@ learn to drive that track as fast as it can, using trail braking and a proper ra
 - **Telemetry** — fitness, lap time and survival charted over generations, with run comparison.
 - **Light / dark theme**, following your system setting by default.
 
-## How to use (inside PowerShell)
+<img width="1919" height="1033" alt="Képernyőkép 2026-07-29 130328" src="https://github.com/user-attachments/assets/f76fb3fd-eb33-4c3e-a461-10dfc9bcb31b" />
 
 1. Download the code using Git
 ```console
@@ -64,13 +64,10 @@ ng serve
 ```console
 http://localhost:4200
 ```
-
----
-
 ## Formulas — How the Training Works
 
-The AI isn't told how to drive. It's given a car, a track, and a score — then a genetic
-algorithm breeds better drivers over many generations.
+The AI isn't told how to drive. It's given a car, a track, and a score — then a
+genetic algorithm breeds better drivers over many generations.
 
 Each generation runs the same loop:
 
@@ -84,21 +81,9 @@ ranked drivers
 next generation
 ```
 
-### 1. The Track
+---
 
-Every track — pieces, drawn, or traced from an image — becomes the same thing internally: a
-**centreline polyline resampled every 2 m, plus a half-width**. Being on track is then just:
-
-```
-distanceBeyondEdge = max(0, distanceToCentreline − (halfWidth − carRadius))
-```
-
-This is a stroked path with round joins, and it is why any corner angle works: a polyline has no
-angular constraint, unlike fixed 30°/45°/90° arc pieces. Round joins also matter for correctness —
-a chain of *rectangles* leaves a wedge-shaped gap on the outside of every joint, which reads as
-off-track and would kill a car at each one.
-
-### 2. The Car — Physics
+### 1. The Car — Physics
 
 Every simulation step (1/30 s) resolves the forces on the car.
 
@@ -112,8 +97,8 @@ F_eng  = min(0.9·P/v · finalDrive/3.8, μ·Fz_rear) · throttle
 a_x    = (F_eng − F_drag − F_roll − F_brake) / m
 ```
 
-**Weight transfer** — braking pushes load onto the front axle, accelerating onto the rear
-(h = 0.5 m assumed CG height, L = wheelbase):
+**Weight transfer** — braking pushes load onto the front axle, accelerating onto
+the rear (h = 0.5 m assumed CG height, L = wheelbase):
 
 ```
 ΔFz      = m·a_x·h / L
@@ -121,38 +106,41 @@ Fz_front = N/2 − ΔFz
 Fz_rear  = N/2 + ΔFz
 ```
 
-This is what makes **trail braking** a real trade-off: braking into a corner loads the front tyre
-and buys grip for turn-in, but spends part of that tyre's budget on braking. Brake bias is
-60% front.
+This is what makes **trail braking** a real trade-off: braking into a corner loads
+the front tyre and buys grip for turn-in, but spends part of that tyre's budget on
+braking. Brake bias is 60% front.
 
-**The friction circle** — each tyre has one grip budget shared between braking and cornering.
-Whatever a tyre spends going forwards, it can't spend turning:
+**The friction circle** — each tyre has one grip budget shared between braking and
+cornering. Whatever a tyre spends going forwards, it can't spend turning:
 
 ```
 F_lat_max = √(1 − (F_long / (μ·Fz))²) · μ·Fz          per axle
 a_lat_max = (F_lat_front + F_lat_rear) / m
 ```
 
-**Rotation** — the steering command asks for a yaw rate, and grip decides whether the car can
-deliver it:
+**Rotation** — the steering command asks for a yaw rate, and grip decides whether
+the car can deliver it:
 
 ```
-ω    = clamp(steer · 2.2 rad/s,  ±a_lat_max / v)
+ω = clamp(steer · 2.2 rad/s,  ±a_lat_max / v)
 a_x' = a_x · √(1 − (a_lat_used / a_lat_max)²)
 ```
 
 Ask for more rotation than grip allows and the car simply understeers instead.
 
-### 3. The Reference Speed Profile
+---
 
-Before training, a near-ideal speed is computed for every point on the track. This becomes the
-speed *limit* the AI is judged against.
+### 2. The Reference Speed Profile
+
+Before training, the optimizer computes a near-ideal speed for every point on the
+track. This becomes the speed *limit* the AI is judged against.
 
 ```
 v_corner = √(a_lat_max / κ)               κ = curvature (1/radius)
 ```
 
-Then two passes make it physically reachable — you can't accelerate or brake instantly:
+Then two passes make it physically reachable — you can't accelerate or brake
+instantly:
 
 ```
 forward  (from a standing start, v₀ = 0):
@@ -164,11 +152,12 @@ backward (so the car is already slowing for the next corner):
 reference lap time = Σ ds / v_avg
 ```
 
-### 4. The Driver — Neural Network
+---
+
+### 3. The Driver — Neural Network
 
 A small feed-forward network: **14 inputs → 12 hidden (tanh) → 3 outputs**, giving
-`(14+1)·12 + (12+1)·3 = 219` weights. That weight array *is* the genome, and *is* what gets saved
-as a model.
+`(14+1)·12 + (12+1)·3 = 219` weights. That weight array *is* the genome.
 
 | Inputs (14) | |
 |---|---|
@@ -187,10 +176,13 @@ as a model.
 | throttle | 0 … 1 (sigmoid) |
 | brake | 0 … 1 (sigmoid) |
 
-A single linear layer can't represent "brake hard *while* turning in, then release as you unwind
-the steering" — the hidden layer is what makes trail braking learnable.
+A single linear layer can't represent "brake hard *while* turning in, then release
+as you unwind the steering" — the hidden layer is what makes trail braking
+learnable.
 
-### 5. The Score — Fitness
+---
+
+### 4. The Score — Fitness
 
 ```
 fitness = 10000 · progress                  how far around the lap
@@ -214,15 +206,18 @@ qualityPenalty = 3000 · avg(overspeed²)     carrying more speed than the corne
 
 Two deliberate choices worth knowing:
 
-- **The speed profile is a limit, not a target.** Only *exceeding* it is punished. Being slower is
-  already punished by lap time — penalising both would double-count it and punish accelerating
-  away from the start line.
-- **There is no "stay near the centreline" term.** A racing line is *defined* by leaving the
-  centreline: wide entry, clip the apex, open the exit, straighten a chicane into one line.
-  Penalising lateral offset would reward tracing the track's curvature instead. Staying on the
-  road is enforced by hard track limits; the *line* is shaped purely by lap time.
+- **The speed profile is a limit, not a target.** Only *exceeding* it is punished.
+  Being slower is already punished by lap time — penalising both would
+  double-count it and punish accelerating away from the start line.
+- **There is no "stay near the centreline" term.** A racing line is *defined* by
+  leaving the centreline: wide entry, clip the apex, open the exit, straighten a
+  chicane into one line. Penalising lateral offset would reward tracing the
+  track's curvature instead. Staying on the road is enforced by hard track limits;
+  the *line* is shaped purely by lap time.
 
-### 6. Evolution
+---
+
+### 5. Evolution
 
 Each generation of population `P` is rebuilt as:
 
@@ -233,16 +228,17 @@ Each generation of population `P` is rebuilt as:
 | 5–15% | **Fresh random** genomes for diversity |
 | rest | **Crossover** — uniform, each weight taken whole from one parent or the other |
 
-**Mutation** is Gaussian with σ = 0.12 (typical weight magnitude is ~0.25), with a 10% chance of a
-5× jump to escape a local optimum:
+**Mutation** is Gaussian with σ = 0.12 (typical weight magnitude is ~0.25), with a
+10% chance of a 5× jump to escape a local optimum:
 
 ```
 w' = w + N(0, σ)          90% of the time
 w' = w + N(0, 5σ)         10% of the time
 ```
 
-The refinement band is what produces steady, incremental gains — without it the only route to a
-better driver is one lucky large mutation, which makes progress arrive in sudden jumps.
+The refinement band is what produces steady, incremental gains — without it the
+only route to a better driver is one lucky large mutation, which makes progress
+arrive in sudden jumps.
 
 **Stagnation** — if the best fitness doesn't improve, exploration widens:
 
@@ -250,15 +246,19 @@ better driver is one lucky large mutation, which makes progress arrive in sudden
 level = min(3, ⌊flatGenerations / 5⌋)
 ```
 
-This raises mutation size and random injection, but **only for the exploration band** —
-refinement always stays fine-grained, and the level is capped. Local search has to stay local to
-work, and unbounded escalation just erases the population.
+This raises mutation size and random injection, but **only for the exploration
+band** — refinement always stays fine-grained, and the level is capped. Local
+search has to stay local to work.
 
-The best genome ever seen is always carried forward, so the champion can never be lost.
+The best genome ever seen is always carried forward, so the champion can never be
+lost.
 
-### 7. Track Limits
+---
 
-Leaving the track isn't an instant fail — it's a grip penalty, like running onto grass:
+### 6. Track Limits
+
+The track is 5 m from centreline to edge. Leaving it isn't an instant fail — it's
+a grip penalty, like running onto grass:
 
 ```
 grip multiplier: 1.0 → 0.35 over the first 0.5 m beyond the edge
@@ -271,24 +271,14 @@ A car is retired when it's clearly gone:
 
 Two guards keep scores honest:
 
-- **Progress is capped at 1.4× the distance actually travelled**, so cutting across a corner's
-  apex can't claim track it never drove.
-- **Crossing the finish counts as a lap** if the car is within 6 m of the end and pointing
-  forward — otherwise driving *through* the finish line would score as leaving the track.
+- **Progress is capped at 1.4× the distance actually travelled**, so cutting across
+  a corner's apex can't claim track it never drove.
+- **Crossing the finish counts as a lap** if the car is within 6 m of the end and
+  pointing forward — otherwise driving *through* the finish line would score as
+  leaving the track.
 
-Each generation gets **3× the reference lap time** to finish (minimum 75 s), since a learning
-driver laps far off the ideal pace.
-
-### 8. Reusing a Trained Model
-
-A saved model is the 219 weights plus the car settings and track it was trained on. That makes it
-portable:
-
-- **Compare** — several models drive the *current* track with evolution frozen, each drawing its
-  line in its own colour, so you can read them against each other.
-- **Continue training elsewhere** — a model can seed the starting population of a new run
-  (itself plus mutated variants) instead of random weights, so training on a second track adapts
-  an already-competent driver rather than relearning one from scratch.
+Each generation gets **3× the reference lap time** to finish (minimum 75 s), since
+a learning driver laps far off the ideal pace.
 
 ---
 
@@ -300,5 +290,5 @@ portable:
 | **Generations** | More time to refine. Lap times keep improving long after the first completed lap |
 | **Mutation** | Higher = more exploration, noisier population. 0.2–0.45 is a sensible range |
 
-Larger and tighter tracks need noticeably more generations — the AI must survive every corner
-before it can start optimising the line through them.
+Larger and tighter tracks need noticeably more generations — the AI must survive
+every corner before it can start optimising the line through them.
