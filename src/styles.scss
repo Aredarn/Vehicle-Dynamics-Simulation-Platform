@@ -80,6 +80,9 @@
   --canvas-centerline: rgba(226, 232, 240, 0.28);
   --canvas-kerb-a: #cbd5e1;
   --canvas-kerb-b: #64748b;
+  /* Corner kerbs — the classic red/white rumble strip. */
+  --canvas-curb-a: #e2e8f0;
+  --canvas-curb-b: #c0392f;
   --canvas-line: #22c55e;
   --canvas-line-alt: #38bdf8;
   --canvas-agent: #f4c14e;
@@ -124,6 +127,8 @@
   --canvas-centerline: rgba(255, 255, 255, 0.75);
   --canvas-kerb-a: #ffffff;
   --canvas-kerb-b: #b91c1c;
+  --canvas-curb-a: #f8fafc;
+  --canvas-curb-b: #dc2626;
   --canvas-line: #15803d;
   --canvas-line-alt: #0369a1;
   --canvas-agent: #b45309;

@@ -13,7 +13,7 @@ import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 import {
   TrackModel, createTrackModel, trackFromSegments, DEFAULT_TRACK_HALF_WIDTH,
-  simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2,
+  simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2, normalizeAngle,
 } from '../../utils/track-geometry';
 import { IconComponent } from '../icon/icon.component';
 import { CarSettingsComponent } from '../car-settings/car-settings.component';
@@ -43,6 +43,8 @@ interface CanvasTheme {
   centerline: string;
   kerbA: string;
   kerbB: string;
+  curbA: string;
+  curbB: string;
   line: string;
   lineAlt: string;
   agent: string;
@@ -193,6 +195,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private viewWidth = 0;
   private viewHeight = 0;
   private dprQueryCleanup?: () => void;
+  /** Kerb geometry is derived from the track, so it's built once per model rather than per frame. */
+  private kerbCache = new WeakMap<TrackModel, Array<{ left: Vec2[]; right: Vec2[] }>>();
 
   ngAfterViewInit(): void {
     const ctx = this.canvasRef.nativeElement.getContext('2d');
@@ -307,6 +311,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       centerline: read('--canvas-centerline', 'rgba(226,232,240,0.28)'),
       kerbA: read('--canvas-kerb-a', '#cbd5e1'),
       kerbB: read('--canvas-kerb-b', '#64748b'),
+      curbA: read('--canvas-curb-a', '#e2e8f0'),
+      curbB: read('--canvas-curb-b', '#c0392f'),
       line: read('--canvas-line', '#22c55e'),
       lineAlt: read('--canvas-line-alt', '#38bdf8'),
       agent: read('--canvas-agent', '#f4c14e'),
@@ -1095,13 +1101,125 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.lineWidth = widthPx;
     ctx.stroke();
 
+    if (!ghost) this.drawKerbs(model);
+
     ctx.strokeStyle = this.colors.centerline;
     ctx.lineWidth = 1 / this.camera.scale;
     ctx.setLineDash([12 / this.camera.scale, 10 / this.camera.scale]);
+    ctx.beginPath();
+    ctx.moveTo(model.points[0].x * PX_PER_M, model.points[0].y * PX_PER_M);
+    for (let i = 1; i < model.points.length; i++) {
+      ctx.lineTo(model.points[i].x * PX_PER_M, model.points[i].y * PX_PER_M);
+    }
+    if (model.closed) ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
 
     if (!ghost) this.drawStartFinish(model, widthPx);
+    ctx.restore();
+  }
+
+  /**
+   * Kerb strips, placed only where the track actually curves.
+   *
+   * Real circuits only kerb the corners, so keying this off curvature is what makes a drawn or
+   * traced layout read as a racetrack rather than a striped ribbon. Each corner run is widened a
+   * little at both ends so the kerb starts before turn-in and runs past the exit, as it does in
+   * reality.
+   */
+  private getKerbRuns(model: TrackModel): Array<{ left: Vec2[]; right: Vec2[] }> {
+    const cached = this.kerbCache.get(model);
+    if (cached) return cached;
+
+    const pts = model.points;
+    const runs: Array<{ left: Vec2[]; right: Vec2[] }> = [];
+    if (pts.length < 5) {
+      this.kerbCache.set(model, runs);
+      return runs;
+    }
+
+    const CURVATURE_THRESHOLD = 0.010;   // ~1/100 m radius; gentler than this reads as a straight
+    const RUN_PADDING = 4;               // points of lead-in / run-off, at 2 m spacing
+
+    const corner = new Uint8Array(pts.length);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const ds = pts[i + 1].s - pts[i - 1].s;
+      if (ds <= 0) continue;
+      const curvature = Math.abs(normalizeAngle(pts[i + 1].heading - pts[i - 1].heading)) / ds;
+      if (curvature > CURVATURE_THRESHOLD) corner[i] = 1;
+    }
+
+    // Widen each corner run, then walk out contiguous stretches.
+    const padded = new Uint8Array(pts.length);
+    for (let i = 0; i < pts.length; i++) {
+      if (!corner[i]) continue;
+      for (let k = Math.max(0, i - RUN_PADDING); k <= Math.min(pts.length - 1, i + RUN_PADDING); k++) padded[k] = 1;
+    }
+
+    const kerbWidth = Math.min(1.4, model.halfWidth * 0.3);
+    const offset = model.halfWidth - kerbWidth / 2;
+
+    let i = 0;
+    while (i < pts.length) {
+      if (!padded[i]) { i++; continue; }
+      const left: Vec2[] = [];
+      const right: Vec2[] = [];
+      while (i < pts.length && padded[i]) {
+        const p = pts[i];
+        const nx = -Math.sin(p.heading);
+        const ny = Math.cos(p.heading);
+        left.push({ x: p.x + nx * offset, y: p.y + ny * offset });
+        right.push({ x: p.x - nx * offset, y: p.y - ny * offset });
+        i++;
+      }
+      if (left.length > 1) runs.push({ left, right });
+    }
+
+    this.kerbCache.set(model, runs);
+    return runs;
+  }
+
+  private drawKerbs(model: TrackModel) {
+    const runs = this.getKerbRuns(model);
+    if (!runs.length) return;
+
+    const ctx = this.ctx;
+    const kerbWidth = Math.min(1.4, model.halfWidth * 0.3) * PX_PER_M;
+    // Below a pixel or so the stripes just alias into mush, so skip them when zoomed far out.
+    if (kerbWidth * this.camera.scale < 1.2) return;
+
+    const stripe = 1.6 * PX_PER_M;
+
+    ctx.save();
+    ctx.lineWidth = kerbWidth;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+
+    const trace = (points: Vec2[]) => {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * PX_PER_M, points[0].y * PX_PER_M);
+      for (let k = 1; k < points.length; k++) ctx.lineTo(points[k].x * PX_PER_M, points[k].y * PX_PER_M);
+    };
+
+    for (const run of runs) {
+      for (const side of [run.left, run.right]) {
+        if (side.length < 2) continue;
+        // Two passes with complementary dash offsets give the alternating red/white banding.
+        ctx.setLineDash([stripe, stripe]);
+        ctx.lineDashOffset = 0;
+        ctx.strokeStyle = this.colors.curbA;
+        trace(side);
+        ctx.stroke();
+
+        ctx.lineDashOffset = -stripe;
+        ctx.strokeStyle = this.colors.curbB;
+        trace(side);
+        ctx.stroke();
+      }
+    }
+
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
     ctx.restore();
   }
 
