@@ -46,16 +46,26 @@
             <span>Draw Track</span>
             <span class="num section__meta">{{ controlPoints.length }} pts</span>
           </h3>
-          <p class="hint">Drag on the canvas to sketch the centreline. Click to add a single point.
-            Drag a point to move it, shift-click to delete it. Alt+drag still pans.</p>
+          <div class="segmented build-mode">
+            <button type="button" class="segmented__btn" [class.is-active]="drawTool === 'draw'" (click)="setDrawTool('draw')">Draw</button>
+            <button type="button" class="segmented__btn" [class.is-active]="drawTool === 'edit'" (click)="setDrawTool('edit')">Edit</button>
+          </div>
+
+          <p class="hint" *ngIf="drawTool === 'draw'">Drag to sketch the centreline, or click to add a
+            single point. Switch to <strong>Edit</strong> once the shape is roughly right.</p>
+          <p class="hint" *ngIf="drawTool === 'edit'">Drag a point to move it, shift-click to delete it.
+            Dragging empty space pans, and nothing new gets added.</p>
           <label class="toggle">
             <input type="checkbox" [checked]="closedLoop" (change)="toggleClosedLoop()" />
             <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
             <span>Closed circuit</span>
           </label>
           <div class="btn-row">
-            <button class="btn btn--danger btn--block" (click)="clearDrawing()" [disabled]="!controlPoints.length">
-              <app-icon name="trash" [size]="14"></app-icon> Clear drawing
+            <button class="btn btn--ghost" (click)="undoDrawing()" [disabled]="!canUndoDrawing" title="Undo (Ctrl+Z)">
+              <app-icon name="undo" [size]="14"></app-icon> Undo
+            </button>
+            <button class="btn btn--danger" (click)="clearDrawing()" [disabled]="!controlPoints.length">
+              <app-icon name="trash" [size]="14"></app-icon> Clear
             </button>
           </div>
         </section>
@@ -297,10 +307,17 @@
         </button>
       </div>
 
-      <p class="viewport-hint" *ngIf="segmentCount === 0">
+      <p class="viewport-hint" *ngIf="!hasTrack && buildMode === 'pieces'">
         Drag a <strong>Start</strong> piece from the Track panel onto the canvas to begin
       </p>
-      <p class="viewport-hint viewport-hint--corner" *ngIf="segmentCount > 0">
+      <p class="viewport-hint" *ngIf="!hasTrack && buildMode === 'draw'">
+        Drag on the canvas to draw the centreline
+      </p>
+      <p class="viewport-hint" *ngIf="!hasTrack && buildMode === 'image'">
+        Import a track image from the Track panel, then trace it
+      </p>
+
+      <p class="viewport-hint viewport-hint--corner" *ngIf="hasTrack">
         Scroll to zoom · Alt + drag to pan
       </p>
     </div>

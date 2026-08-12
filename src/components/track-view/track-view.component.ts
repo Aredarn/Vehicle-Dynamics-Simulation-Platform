@@ -130,6 +130,16 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   buildMode: BuildMode = 'pieces';
 
+  /**
+   * Draw adds geometry; Edit only adjusts what is already there. Splitting them is what stops a
+   * stray click from appending to the track while you are trying to nudge a corner.
+   */
+  drawTool: 'draw' | 'edit' = 'draw';
+
+  /** Snapshots of controlPoints taken before each mutation, for undo. */
+  private pointHistory: Vec2[][] = [];
+  private static readonly MAX_HISTORY = 60;
+
   /** Editable control points behind a drawn/traced track. */
   controlPoints: Vec2[] = [];
   closedLoop = true;
@@ -444,7 +454,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   onCanvasMouseDown(event: MouseEvent) {
     if (this.onFreeformMouseDown(event)) return;
-    if (event.button === 1 || event.button === 2 || event.altKey) {
+    const panWithLeftDrag = this.isFreeform && this.drawTool === 'edit' && event.button === 0;
+    if (event.button === 1 || event.button === 2 || event.altKey || panWithLeftDrag) {
       event.preventDefault();
       this.isPanning = true;
       this.panStart = { x: event.clientX, y: event.clientY };
@@ -681,7 +692,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Installs a free-form centreline (drawn or traced) as the active track. */
-  private applyTrackPoints(points: Vec2[], label: string, closed: boolean, source: 'drawn' | 'traced') {
+  private applyTrackPoints(
+    points: Vec2[],
+    label: string,
+    closed: boolean,
+    source: 'drawn' | 'traced',
+    fitView = false
+  ) {
     if (points.length < 2) return;
     this.segments = [];
     this.currentTrackLabel = label;
@@ -693,7 +710,9 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     });
     this.clearComparisonState();
     this.updateRacingLine();
-    this.fitTrackToView();
+    // Only recentre when a track first appears. Refitting on every rebuild made the view jump
+    // on each mousemove while dragging a point, which made editing almost unusable.
+    if (fitView) this.fitTrackToView();
     this.requestRedraw();
   }
 
@@ -903,14 +922,20 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     let length = lengthM * PX_PER_M;
     let width = widthM * PX_PER_M;
 
-    // Below a few pixels a car is unreadable, so hold a floor on apparent size when zoomed far
-    // out — but cap how far that can go, otherwise the floor reintroduces the original problem
-    // and the cars swallow the track again at extreme zoom levels.
-    const MIN_SCREEN_LENGTH = 4;
-    const MAX_BOOST = 1.8;
+    // Real size is the truth, but a real car is only a couple of screen pixels once the view is
+    // zoomed out far enough to see a whole circuit, which reads as specks rather than cars. So
+    // grow them toward a legible minimum — capped as a *fraction of the road* rather than a fixed
+    // multiple, which is what keeps them from ever swallowing the track (the original bug) while
+    // still letting them scale up sensibly on a wide circuit.
+    const MIN_SCREEN_LENGTH = 10;
+    const MAX_TRACK_FRACTION = 0.5;
+    const roadWidthPx = (this.track?.halfWidth ?? DEFAULT_TRACK_HALF_WIDTH) * 2 * PX_PER_M;
+
     const screenLength = length * this.camera.scale;
     if (screenLength < MIN_SCREEN_LENGTH) {
-      const boost = Math.min(MAX_BOOST, MIN_SCREEN_LENGTH / screenLength);
+      const legibilityBoost = MIN_SCREEN_LENGTH / screenLength;
+      const widthCapBoost = (roadWidthPx * MAX_TRACK_FRACTION) / width;
+      const boost = Math.max(1, Math.min(legibilityBoost, widthCapBoost));
       length *= boost;
       width *= boost;
     }
@@ -1109,6 +1134,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.requestRedraw();
   }
 
+  /** Any track exists, however it was built — drives the canvas placeholder hints. */
+  get hasTrack(): boolean {
+    return !!this.track && this.track.points.length > 1;
+  }
+
   get isFreeform(): boolean {
     return this.buildMode !== 'pieces';
   }
@@ -1125,10 +1155,56 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.requestRedraw();
       return;
     }
+    const hadTrack = !!this.track;
     const curve = fit && this.controlPoints.length > 2
       ? splineThroughPoints(this.controlPoints, this.closedLoop, 10)
       : this.controlPoints;
-    this.applyTrackPoints(curve, this.currentTrackLabel, this.closedLoop, this.track?.source === 'traced' ? 'traced' : 'drawn');
+    this.applyTrackPoints(
+      curve,
+      this.currentTrackLabel,
+      this.closedLoop,
+      this.track?.source === 'traced' ? 'traced' : 'drawn',
+      !hadTrack
+    );
+  }
+
+  setDrawTool(tool: 'draw' | 'edit') {
+    this.drawTool = tool;
+  }
+
+  get canUndoDrawing(): boolean {
+    return this.pointHistory.length > 0;
+  }
+
+  /** Call immediately before any change to controlPoints. */
+  private pushHistory() {
+    this.pointHistory.push(this.controlPoints.map(p => ({ ...p })));
+    if (this.pointHistory.length > TrackViewComponent.MAX_HISTORY) this.pointHistory.shift();
+  }
+
+  undoDrawing() {
+    const previous = this.pointHistory.pop();
+    if (!previous) return;
+    this.controlPoints = previous;
+    if (this.controlPoints.length < 2) {
+      this.track = null;
+      this.racingLine = [];
+      this.clearComparisonState();
+      this.requestRedraw();
+      return;
+    }
+    this.rebuildFromControlPoints();
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    // Don't hijack undo while the user is typing in a field.
+    const tag = (event.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!this.isFreeform || !this.canUndoDrawing) return;
+    event.preventDefault();
+    this.undoDrawing();
   }
 
   toggleClosedLoop() {
@@ -1137,6 +1213,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   clearDrawing() {
+    if (this.controlPoints.length) this.pushHistory();
     this.controlPoints = [];
     this.track = null;
     this.racingLine = [];
@@ -1163,13 +1240,18 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (hit !== -1) {
       // Shift-click removes a point; otherwise start dragging it.
       if (event.shiftKey) {
+        this.pushHistory();
         this.controlPoints.splice(hit, 1);
         this.rebuildFromControlPoints();
       } else {
+        this.pushHistory();
         this.draggingPointIndex = hit;
       }
       return true;
     }
+
+    // In Edit the canvas never gains geometry; let the press fall through to panning instead.
+    if (this.drawTool === 'edit') return false;
 
     this.isDrawing = true;
     this.strokePoints = [world];
@@ -1209,9 +1291,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (!this.isDrawing) return false;
     this.isDrawing = false;
 
-    if (this.strokePoints.length < 3) {
+    // Ignore anything shorter than a deliberate mark, so a twitch during a click doesn't
+    // silently append a stub to the track.
+    const MIN_STROKE_M = 4;
+    if (this.strokePoints.length < 3 || pathLength(this.strokePoints) < MIN_STROKE_M) {
       // A click rather than a stroke: append a single control point.
-      if (this.strokePoints.length === 1) {
+      if (this.strokePoints.length >= 1) {
+        this.pushHistory();
         this.controlPoints.push(this.strokePoints[0]);
         this.rebuildFromControlPoints();
       }
@@ -1219,6 +1305,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       return true;
     }
 
+    this.pushHistory();
     // A freehand stroke becomes control points, so it stays editable afterwards.
     const simplified = simplifyPath(this.strokePoints, 2.5);
     this.controlPoints = this.controlPoints.length
@@ -1289,7 +1376,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.controlPoints = simplifyPath(result.points, 4);
       this.closedLoop = result.closed;
       this.currentTrackLabel = this.underlayName.replace(/\.[^.]+$/, '') || 'Traced Track';
-      this.applyTrackPoints(result.points, this.currentTrackLabel, result.closed, 'traced');
+      this.applyTrackPoints(result.points, this.currentTrackLabel, result.closed, 'traced', true);
     } catch (err) {
       this.traceError = err instanceof Error ? err.message : 'Tracing failed.';
     } finally {
