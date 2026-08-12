@@ -1141,19 +1141,31 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const CURVATURE_THRESHOLD = 0.010;   // ~1/100 m radius; gentler than this reads as a straight
     const RUN_PADDING = 4;               // points of lead-in / run-off, at 2 m spacing
 
-    const corner = new Uint8Array(pts.length);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const ds = pts[i + 1].s - pts[i - 1].s;
+    const n = pts.length;
+    const wrap = model.closed;
+    // Arc length is measured between the neighbours directly rather than differenced off `s`,
+    // because on a closed track `s` resets at the seam and the difference there is meaningless.
+    const span = (a: number, b: number) => Math.hypot(pts[b].x - pts[a].x, pts[b].y - pts[a].y);
+
+    const corner = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const prev = i > 0 ? i - 1 : (wrap ? n - 1 : -1);
+      const next = i < n - 1 ? i + 1 : (wrap ? 0 : -1);
+      if (prev < 0 || next < 0) continue;
+      const ds = span(prev, i) + span(i, next);
       if (ds <= 0) continue;
-      const curvature = Math.abs(normalizeAngle(pts[i + 1].heading - pts[i - 1].heading)) / ds;
+      const curvature = Math.abs(normalizeAngle(pts[next].heading - pts[prev].heading)) / ds;
       if (curvature > CURVATURE_THRESHOLD) corner[i] = 1;
     }
 
     // Widen each corner run, then walk out contiguous stretches.
-    const padded = new Uint8Array(pts.length);
-    for (let i = 0; i < pts.length; i++) {
+    const padded = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
       if (!corner[i]) continue;
-      for (let k = Math.max(0, i - RUN_PADDING); k <= Math.min(pts.length - 1, i + RUN_PADDING); k++) padded[k] = 1;
+      for (let d = -RUN_PADDING; d <= RUN_PADDING; d++) {
+        const k = wrap ? (i + d + n) % n : i + d;
+        if (k >= 0 && k < n) padded[k] = 1;
+      }
     }
 
     const kerbWidth = Math.min(1.4, model.halfWidth * 0.3);
@@ -1173,6 +1185,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
         i++;
       }
       if (left.length > 1) runs.push({ left, right });
+    }
+
+    // A corner straddling the seam comes out as two runs; join them so the stripe is unbroken.
+    if (wrap && runs.length > 1 && padded[0] && padded[n - 1]) {
+      const tail = runs.pop()!;
+      runs[0].left = tail.left.concat(runs[0].left);
+      runs[0].right = tail.right.concat(runs[0].right);
     }
 
     this.kerbCache.set(model, runs);
