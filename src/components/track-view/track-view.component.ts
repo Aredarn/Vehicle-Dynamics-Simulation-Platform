@@ -13,7 +13,7 @@ import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 import {
   TrackModel, createTrackModel, trackFromSegments, DEFAULT_TRACK_HALF_WIDTH,
-  simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2,
+  simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2, normalizeAngle,
 } from '../../utils/track-geometry';
 import { IconComponent } from '../icon/icon.component';
 import { CarSettingsComponent } from '../car-settings/car-settings.component';
@@ -43,6 +43,8 @@ interface CanvasTheme {
   centerline: string;
   kerbA: string;
   kerbB: string;
+  curbA: string;
+  curbB: string;
   line: string;
   lineAlt: string;
   agent: string;
@@ -130,6 +132,16 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   buildMode: BuildMode = 'pieces';
 
+  /**
+   * Draw adds geometry; Edit only adjusts what is already there. Splitting them is what stops a
+   * stray click from appending to the track while you are trying to nudge a corner.
+   */
+  drawTool: 'draw' | 'edit' = 'draw';
+
+  /** Snapshots of controlPoints taken before each mutation, for undo. */
+  private pointHistory: Vec2[][] = [];
+  private static readonly MAX_HISTORY = 60;
+
   /** Editable control points behind a drawn/traced track. */
   controlPoints: Vec2[] = [];
   closedLoop = true;
@@ -183,6 +195,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private viewWidth = 0;
   private viewHeight = 0;
   private dprQueryCleanup?: () => void;
+  /** Kerb geometry is derived from the track, so it's built once per model rather than per frame. */
+  private kerbCache = new WeakMap<TrackModel, Array<{ left: Vec2[]; right: Vec2[] }>>();
 
   ngAfterViewInit(): void {
     const ctx = this.canvasRef.nativeElement.getContext('2d');
@@ -297,6 +311,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       centerline: read('--canvas-centerline', 'rgba(226,232,240,0.28)'),
       kerbA: read('--canvas-kerb-a', '#cbd5e1'),
       kerbB: read('--canvas-kerb-b', '#64748b'),
+      curbA: read('--canvas-curb-a', '#e2e8f0'),
+      curbB: read('--canvas-curb-b', '#c0392f'),
       line: read('--canvas-line', '#22c55e'),
       lineAlt: read('--canvas-line-alt', '#38bdf8'),
       agent: read('--canvas-agent', '#f4c14e'),
@@ -444,7 +460,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   onCanvasMouseDown(event: MouseEvent) {
     if (this.onFreeformMouseDown(event)) return;
-    if (event.button === 1 || event.button === 2 || event.altKey) {
+    const panWithLeftDrag = this.isFreeform && this.drawTool === 'edit' && event.button === 0;
+    if (event.button === 1 || event.button === 2 || event.altKey || panWithLeftDrag) {
       event.preventDefault();
       this.isPanning = true;
       this.panStart = { x: event.clientX, y: event.clientY };
@@ -681,7 +698,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Installs a free-form centreline (drawn or traced) as the active track. */
-  private applyTrackPoints(points: Vec2[], label: string, closed: boolean, source: 'drawn' | 'traced') {
+  private applyTrackPoints(
+    points: Vec2[],
+    label: string,
+    closed: boolean,
+    source: 'drawn' | 'traced',
+    fitView = false
+  ) {
     if (points.length < 2) return;
     this.segments = [];
     this.currentTrackLabel = label;
@@ -693,7 +716,9 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     });
     this.clearComparisonState();
     this.updateRacingLine();
-    this.fitTrackToView();
+    // Only recentre when a track first appears. Refitting on every rebuild made the view jump
+    // on each mousemove while dragging a point, which made editing almost unusable.
+    if (fitView) this.fitTrackToView();
     this.requestRedraw();
   }
 
@@ -903,14 +928,20 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     let length = lengthM * PX_PER_M;
     let width = widthM * PX_PER_M;
 
-    // Below a few pixels a car is unreadable, so hold a floor on apparent size when zoomed far
-    // out — but cap how far that can go, otherwise the floor reintroduces the original problem
-    // and the cars swallow the track again at extreme zoom levels.
-    const MIN_SCREEN_LENGTH = 4;
-    const MAX_BOOST = 1.8;
+    // Real size is the truth, but a real car is only a couple of screen pixels once the view is
+    // zoomed out far enough to see a whole circuit, which reads as specks rather than cars. So
+    // grow them toward a legible minimum — capped as a *fraction of the road* rather than a fixed
+    // multiple, which is what keeps them from ever swallowing the track (the original bug) while
+    // still letting them scale up sensibly on a wide circuit.
+    const MIN_SCREEN_LENGTH = 10;
+    const MAX_TRACK_FRACTION = 0.5;
+    const roadWidthPx = (this.track?.halfWidth ?? DEFAULT_TRACK_HALF_WIDTH) * 2 * PX_PER_M;
+
     const screenLength = length * this.camera.scale;
     if (screenLength < MIN_SCREEN_LENGTH) {
-      const boost = Math.min(MAX_BOOST, MIN_SCREEN_LENGTH / screenLength);
+      const legibilityBoost = MIN_SCREEN_LENGTH / screenLength;
+      const widthCapBoost = (roadWidthPx * MAX_TRACK_FRACTION) / width;
+      const boost = Math.max(1, Math.min(legibilityBoost, widthCapBoost));
       length *= boost;
       width *= boost;
     }
@@ -1070,13 +1101,144 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     ctx.lineWidth = widthPx;
     ctx.stroke();
 
+    if (!ghost) this.drawKerbs(model);
+
     ctx.strokeStyle = this.colors.centerline;
     ctx.lineWidth = 1 / this.camera.scale;
     ctx.setLineDash([12 / this.camera.scale, 10 / this.camera.scale]);
+    ctx.beginPath();
+    ctx.moveTo(model.points[0].x * PX_PER_M, model.points[0].y * PX_PER_M);
+    for (let i = 1; i < model.points.length; i++) {
+      ctx.lineTo(model.points[i].x * PX_PER_M, model.points[i].y * PX_PER_M);
+    }
+    if (model.closed) ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
 
     if (!ghost) this.drawStartFinish(model, widthPx);
+    ctx.restore();
+  }
+
+  /**
+   * Kerb strips, placed only where the track actually curves.
+   *
+   * Real circuits only kerb the corners, so keying this off curvature is what makes a drawn or
+   * traced layout read as a racetrack rather than a striped ribbon. Each corner run is widened a
+   * little at both ends so the kerb starts before turn-in and runs past the exit, as it does in
+   * reality.
+   */
+  private getKerbRuns(model: TrackModel): Array<{ left: Vec2[]; right: Vec2[] }> {
+    const cached = this.kerbCache.get(model);
+    if (cached) return cached;
+
+    const pts = model.points;
+    const runs: Array<{ left: Vec2[]; right: Vec2[] }> = [];
+    if (pts.length < 5) {
+      this.kerbCache.set(model, runs);
+      return runs;
+    }
+
+    const CURVATURE_THRESHOLD = 0.010;   // ~1/100 m radius; gentler than this reads as a straight
+    const RUN_PADDING = 4;               // points of lead-in / run-off, at 2 m spacing
+
+    const n = pts.length;
+    const wrap = model.closed;
+    // Arc length is measured between the neighbours directly rather than differenced off `s`,
+    // because on a closed track `s` resets at the seam and the difference there is meaningless.
+    const span = (a: number, b: number) => Math.hypot(pts[b].x - pts[a].x, pts[b].y - pts[a].y);
+
+    const corner = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const prev = i > 0 ? i - 1 : (wrap ? n - 1 : -1);
+      const next = i < n - 1 ? i + 1 : (wrap ? 0 : -1);
+      if (prev < 0 || next < 0) continue;
+      const ds = span(prev, i) + span(i, next);
+      if (ds <= 0) continue;
+      const curvature = Math.abs(normalizeAngle(pts[next].heading - pts[prev].heading)) / ds;
+      if (curvature > CURVATURE_THRESHOLD) corner[i] = 1;
+    }
+
+    // Widen each corner run, then walk out contiguous stretches.
+    const padded = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!corner[i]) continue;
+      for (let d = -RUN_PADDING; d <= RUN_PADDING; d++) {
+        const k = wrap ? (i + d + n) % n : i + d;
+        if (k >= 0 && k < n) padded[k] = 1;
+      }
+    }
+
+    const kerbWidth = Math.min(1.4, model.halfWidth * 0.3);
+    const offset = model.halfWidth - kerbWidth / 2;
+
+    let i = 0;
+    while (i < pts.length) {
+      if (!padded[i]) { i++; continue; }
+      const left: Vec2[] = [];
+      const right: Vec2[] = [];
+      while (i < pts.length && padded[i]) {
+        const p = pts[i];
+        const nx = -Math.sin(p.heading);
+        const ny = Math.cos(p.heading);
+        left.push({ x: p.x + nx * offset, y: p.y + ny * offset });
+        right.push({ x: p.x - nx * offset, y: p.y - ny * offset });
+        i++;
+      }
+      if (left.length > 1) runs.push({ left, right });
+    }
+
+    // A corner straddling the seam comes out as two runs; join them so the stripe is unbroken.
+    if (wrap && runs.length > 1 && padded[0] && padded[n - 1]) {
+      const tail = runs.pop()!;
+      runs[0].left = tail.left.concat(runs[0].left);
+      runs[0].right = tail.right.concat(runs[0].right);
+    }
+
+    this.kerbCache.set(model, runs);
+    return runs;
+  }
+
+  private drawKerbs(model: TrackModel) {
+    const runs = this.getKerbRuns(model);
+    if (!runs.length) return;
+
+    const ctx = this.ctx;
+    const kerbWidth = Math.min(1.4, model.halfWidth * 0.3) * PX_PER_M;
+    // Below a pixel or so the stripes just alias into mush, so skip them when zoomed far out.
+    if (kerbWidth * this.camera.scale < 1.2) return;
+
+    const stripe = 1.6 * PX_PER_M;
+
+    ctx.save();
+    ctx.lineWidth = kerbWidth;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+
+    const trace = (points: Vec2[]) => {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * PX_PER_M, points[0].y * PX_PER_M);
+      for (let k = 1; k < points.length; k++) ctx.lineTo(points[k].x * PX_PER_M, points[k].y * PX_PER_M);
+    };
+
+    for (const run of runs) {
+      for (const side of [run.left, run.right]) {
+        if (side.length < 2) continue;
+        // Two passes with complementary dash offsets give the alternating red/white banding.
+        ctx.setLineDash([stripe, stripe]);
+        ctx.lineDashOffset = 0;
+        ctx.strokeStyle = this.colors.curbA;
+        trace(side);
+        ctx.stroke();
+
+        ctx.lineDashOffset = -stripe;
+        ctx.strokeStyle = this.colors.curbB;
+        trace(side);
+        ctx.stroke();
+      }
+    }
+
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
     ctx.restore();
   }
 
@@ -1109,6 +1271,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.requestRedraw();
   }
 
+  /** Any track exists, however it was built — drives the canvas placeholder hints. */
+  get hasTrack(): boolean {
+    return !!this.track && this.track.points.length > 1;
+  }
+
   get isFreeform(): boolean {
     return this.buildMode !== 'pieces';
   }
@@ -1125,10 +1292,56 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.requestRedraw();
       return;
     }
+    const hadTrack = !!this.track;
     const curve = fit && this.controlPoints.length > 2
       ? splineThroughPoints(this.controlPoints, this.closedLoop, 10)
       : this.controlPoints;
-    this.applyTrackPoints(curve, this.currentTrackLabel, this.closedLoop, this.track?.source === 'traced' ? 'traced' : 'drawn');
+    this.applyTrackPoints(
+      curve,
+      this.currentTrackLabel,
+      this.closedLoop,
+      this.track?.source === 'traced' ? 'traced' : 'drawn',
+      !hadTrack
+    );
+  }
+
+  setDrawTool(tool: 'draw' | 'edit') {
+    this.drawTool = tool;
+  }
+
+  get canUndoDrawing(): boolean {
+    return this.pointHistory.length > 0;
+  }
+
+  /** Call immediately before any change to controlPoints. */
+  private pushHistory() {
+    this.pointHistory.push(this.controlPoints.map(p => ({ ...p })));
+    if (this.pointHistory.length > TrackViewComponent.MAX_HISTORY) this.pointHistory.shift();
+  }
+
+  undoDrawing() {
+    const previous = this.pointHistory.pop();
+    if (!previous) return;
+    this.controlPoints = previous;
+    if (this.controlPoints.length < 2) {
+      this.track = null;
+      this.racingLine = [];
+      this.clearComparisonState();
+      this.requestRedraw();
+      return;
+    }
+    this.rebuildFromControlPoints();
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+    // Don't hijack undo while the user is typing in a field.
+    const tag = (event.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!this.isFreeform || !this.canUndoDrawing) return;
+    event.preventDefault();
+    this.undoDrawing();
   }
 
   toggleClosedLoop() {
@@ -1137,6 +1350,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   clearDrawing() {
+    if (this.controlPoints.length) this.pushHistory();
     this.controlPoints = [];
     this.track = null;
     this.racingLine = [];
@@ -1163,13 +1377,18 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (hit !== -1) {
       // Shift-click removes a point; otherwise start dragging it.
       if (event.shiftKey) {
+        this.pushHistory();
         this.controlPoints.splice(hit, 1);
         this.rebuildFromControlPoints();
       } else {
+        this.pushHistory();
         this.draggingPointIndex = hit;
       }
       return true;
     }
+
+    // In Edit the canvas never gains geometry; let the press fall through to panning instead.
+    if (this.drawTool === 'edit') return false;
 
     this.isDrawing = true;
     this.strokePoints = [world];
@@ -1209,9 +1428,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (!this.isDrawing) return false;
     this.isDrawing = false;
 
-    if (this.strokePoints.length < 3) {
+    // Ignore anything shorter than a deliberate mark, so a twitch during a click doesn't
+    // silently append a stub to the track.
+    const MIN_STROKE_M = 4;
+    if (this.strokePoints.length < 3 || pathLength(this.strokePoints) < MIN_STROKE_M) {
       // A click rather than a stroke: append a single control point.
-      if (this.strokePoints.length === 1) {
+      if (this.strokePoints.length >= 1) {
+        this.pushHistory();
         this.controlPoints.push(this.strokePoints[0]);
         this.rebuildFromControlPoints();
       }
@@ -1219,6 +1442,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       return true;
     }
 
+    this.pushHistory();
     // A freehand stroke becomes control points, so it stays editable afterwards.
     const simplified = simplifyPath(this.strokePoints, 2.5);
     this.controlPoints = this.controlPoints.length
@@ -1289,7 +1513,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.controlPoints = simplifyPath(result.points, 4);
       this.closedLoop = result.closed;
       this.currentTrackLabel = this.underlayName.replace(/\.[^.]+$/, '') || 'Traced Track';
-      this.applyTrackPoints(result.points, this.currentTrackLabel, result.closed, 'traced');
+      this.applyTrackPoints(result.points, this.currentTrackLabel, result.closed, 'traced', true);
     } catch (err) {
       this.traceError = err instanceof Error ? err.message : 'Tracing failed.';
     } finally {

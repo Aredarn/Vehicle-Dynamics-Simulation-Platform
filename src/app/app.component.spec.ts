@@ -20,10 +20,10 @@ describe('AppComponent', () => {
     expect(app.title).toEqual('VDSP');
   });
 
-  it('should render title', () => {
+  it('should render the app title in the header', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, VDSP');
+    expect(compiled.querySelector('.app-header__title')?.textContent).toContain('VDSP');
   });
 });
