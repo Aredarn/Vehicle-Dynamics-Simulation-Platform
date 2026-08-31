@@ -87,6 +87,9 @@
   --canvas-line-alt: #38bdf8;
   --canvas-agent: #f4c14e;
   --canvas-agent-dead: #7f3f45;
+  /* The human driver, kept distinct from the AI's amber so the two lines never read alike. */
+  --canvas-player: #38bdf8;
+  --canvas-player-line: #0ea5e9;
   --canvas-text: #e2e8f0;
 }
 
@@ -133,6 +136,8 @@
   --canvas-line-alt: #0369a1;
   --canvas-agent: #b45309;
   --canvas-agent-dead: #b91c1c;
+  --canvas-player: #0369a1;
+  --canvas-player-line: #0284c7;
   --canvas-text: #f8fafc;
 }
 

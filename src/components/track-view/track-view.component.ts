@@ -9,6 +9,7 @@ import { ThemeService } from '../../services/theme.service';
 import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
+import { PlayerCar, DriverInput, PlayerTelemetry } from '../../models/PlayerCar';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 import {
@@ -20,6 +21,7 @@ import { CarSettingsComponent } from '../car-settings/car-settings.component';
 import { ResultsPanelComponent } from '../results-panel/results-panel.component';
 import { ModelCompareComponent, ModelComparisonResult } from '../model-compare/model-compare.component';
 import { TrackTracerService } from '../../services/track-tracer.service';
+import { DriverHudComponent, LapRecord } from '../driver-hud/driver-hud.component';
 
 const roadWidth = 30;
 const PX_PER_M = 3;
@@ -30,7 +32,7 @@ interface Camera {
   offsetY: number;
 }
 
-type SidebarTab = 'car' | 'track' | 'training';
+type SidebarTab = 'car' | 'track' | 'training' | 'drive';
 /** How the track is being authored. Pieces stay for quick blocking-out; the others are free-form. */
 export type BuildMode = 'pieces' | 'draw' | 'image';
 
@@ -49,13 +51,15 @@ interface CanvasTheme {
   lineAlt: string;
   agent: string;
   agentDead: string;
+  player: string;
+  playerLine: string;
   text: string;
 }
 
 @Component({
   selector: 'app-track-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent, CarSettingsComponent, ResultsPanelComponent, ModelCompareComponent],
+  imports: [CommonModule, FormsModule, IconComponent, CarSettingsComponent, ResultsPanelComponent, ModelCompareComponent, DriverHudComponent],
   templateUrl: './track-view.component.html',
   styleUrls: ['./track-view.component.scss']
 })
@@ -100,6 +104,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     { id: 'car', label: 'Car', icon: 'car' },
     { id: 'track', label: 'Track', icon: 'track' },
     { id: 'training', label: 'Training', icon: 'cpu' },
+    { id: 'drive', label: 'Drive', icon: 'steering' },
   ];
 
   palette = [
@@ -198,6 +203,29 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   /** Kerb geometry is derived from the track, so it's built once per model rather than per frame. */
   private kerbCache = new WeakMap<TrackModel, Array<{ left: Vec2[]; right: Vec2[] }>>();
 
+  // ---------- Drive mode ----------
+  /**
+   * The human-driven car runs the same physics and the same track limits as the AI, stepped at
+   * the same fixed 1/30 s. Frame rate therefore has no effect on the lap time, which is what
+   * makes a player's lap comparable with an agent's rather than a function of their monitor.
+   */
+  private static readonly PLAYER_DT = 1 / 30;
+  private static readonly MAX_CATCHUP_STEPS = 8;
+
+  driveMode = false;
+  playerCar: PlayerCar | null = null;
+  playerTelemetry: PlayerTelemetry | null = null;
+  followCam = true;
+  showPlayerLine = true;
+  playerBestLap = 0;
+  lastLap: LapRecord | null = null;
+  lapHistory: LapRecord[] = [];
+  /** The line from the driver's best lap so far, kept to compare routes against the AI's. */
+  playerBestLine: RacingLinePoint[] = [];
+
+  private heldKeys = new Set<string>();
+  private physicsAccumulator = 0;
+
   ngAfterViewInit(): void {
     const ctx = this.canvasRef.nativeElement.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context unavailable');
@@ -213,6 +241,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.car = new Car(this.settingsService.getSettings());
     this.carColor = this.settingsService.getActivePresetColor();
+    this.playerCar = new PlayerCar(this.settingsService.getSettings());
 
     // The element has no layout yet during ngAfterViewInit, so observe it instead of
     // measuring once — this also covers the sidebar and telemetry drawer resizing it.
@@ -236,6 +265,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.settingsSub = this.settingsService.settings$.subscribe(settings => {
       this.car.updateSpecs(settings);
       this.carColor = this.settingsService.getActivePresetColor();
+      // Every driving trait — top speed, grip, weight transfer, off-track grace, car size — is
+      // derived from these settings, so a change mid-session re-arms the run rather than
+      // leaving the driver in a car whose stats no longer match the panel.
+      this.playerCar?.updateSettings(settings);
+      if (this.driveMode) this.resetRun();
       this.updateRacingLine();
       this.requestRedraw();
     });
@@ -317,6 +351,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       lineAlt: read('--canvas-line-alt', '#38bdf8'),
       agent: read('--canvas-agent', '#f4c14e'),
       agentDead: read('--canvas-agent-dead', '#7f3f45'),
+      player: read('--canvas-player', '#38bdf8'),
+      playerLine: read('--canvas-player-line', '#0ea5e9'),
       text: read('--canvas-text', '#e2e8f0'),
     };
   }
@@ -789,7 +825,10 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   // ---------- Racing Line ----------
   private updateRacingLine() {
-    if (!this.car || this.segments.length === 0) {
+    // Gated on the track rather than on `segments`, which only exist for piece-built layouts —
+    // drawn and traced tracks were silently getting no racing line and no reference lap time,
+    // even though `computeRacingLine` works from the unified model for all three.
+    if (!this.car || !this.track || this.track.points.length < 2) {
       this.racingLine = [];
       this.estimatedLapTime = 0;
       return;
@@ -850,6 +889,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.drawRacingLine();
     this.drawComparisonLines();
     this.drawTrainingAgents();
+    this.drawPlayerLine();
+    this.drawPlayerCar();
 
     this.drawAuthoringOverlay();
 
@@ -916,10 +957,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
    * car came out around 10 m wide, wider than the 10 m track itself, and even at 1:1 it was
    * roughly twice the width of a real car.
    */
-  private drawTrainingAgents() {
-    if (!this.showAgents || !this.trainingAgents.length) return;
-
-    const ctx = this.ctx;
+  private carScreenSize(): { length: number; width: number } {
     const wheelbase = Math.max(1.5, this.settingsService.getSettings().wheelbase || 2.7);
     // Overall length runs a little beyond the wheelbase at each end; width is a typical track.
     const lengthM = wheelbase * 1.6;
@@ -945,6 +983,15 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       length *= boost;
       width *= boost;
     }
+
+    return { length, width };
+  }
+
+  private drawTrainingAgents() {
+    if (!this.showAgents || !this.trainingAgents.length) return;
+
+    const ctx = this.ctx;
+    const { length, width } = this.carScreenSize();
 
     const half = length / 2;
     const halfW = width / 2;
@@ -979,6 +1026,80 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       ctx.fill();
 
       ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * The driver's line: the lap in progress solid, their best lap so far faded underneath.
+   *
+   * This is the point of driving at all — seeing your route next to the AI's makes the places
+   * you differ, and which of you is right, immediately legible.
+   */
+  private drawPlayerLine() {
+    if (!this.driveMode || !this.showPlayerLine) return;
+
+    const ctx = this.ctx;
+    const stroke = (points: RacingLinePoint[], alpha: number, dashed: boolean) => {
+      if (points.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = this.colors.playerLine;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 2.5 / this.camera.scale;
+      ctx.lineJoin = 'round';
+      if (dashed) ctx.setLineDash([8 / this.camera.scale, 6 / this.camera.scale]);
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * PX_PER_M, points[0].y * PX_PER_M);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x * PX_PER_M, points[i].y * PX_PER_M);
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    stroke(this.playerBestLine, 0.4, true);
+    if (this.playerCar) stroke(this.playerCar.trail, 0.95, false);
+  }
+
+  /** The player's car, drawn at the same real-world size as the agents but in its own colour. */
+  private drawPlayerCar() {
+    const car = this.playerCar;
+    if (!this.driveMode || !car || !this.hasTrack) return;
+
+    const ctx = this.ctx;
+    const { length, width } = this.carScreenSize();
+    const half = length / 2;
+    const halfW = width / 2;
+
+    ctx.save();
+    ctx.translate(car.state.x * PX_PER_M, car.state.y * PX_PER_M);
+    ctx.rotate(car.state.heading);
+
+    ctx.fillStyle = this.colors.player;
+    ctx.beginPath();
+    if (length * this.camera.scale >= 14) {
+      ctx.moveTo(half, -halfW * 0.62);
+      ctx.lineTo(half * 0.55, -halfW);
+      ctx.lineTo(-half * 0.88, -halfW);
+      ctx.lineTo(-half, -halfW * 0.72);
+      ctx.lineTo(-half, halfW * 0.72);
+      ctx.lineTo(-half * 0.88, halfW);
+      ctx.lineTo(half * 0.55, halfW);
+      ctx.lineTo(half, halfW * 0.62);
+    } else {
+      ctx.rect(-half, -halfW, length, width);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // A ring while the car is off the track surface — the grip penalty is invisible otherwise.
+    if (car.status === 'running' && this.playerTelemetry && !this.playerTelemetry.onTrack) {
+      ctx.strokeStyle = this.colors.curbB;
+      ctx.lineWidth = 2 / this.camera.scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(half, halfW) * 1.6, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     ctx.restore();
@@ -1333,15 +1454,57 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.rebuildFromControlPoints();
   }
 
+  /** True while the user is typing, so driving keys never steal a keystroke from a field. */
+  private isTypingTarget(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    const tag = el?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!el?.isContentEditable;
+  }
+
+  private static readonly DRIVING_KEYS = new Set([
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space',
+  ]);
+
   @HostListener('window:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
-    // Don't hijack undo while the user is typing in a field.
-    const tag = (event.target as HTMLElement | null)?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (!this.isFreeform || !this.canUndoDrawing) return;
-    event.preventDefault();
-    this.undoDrawing();
+    if (this.isTypingTarget(event.target)) return;
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      if (!this.isFreeform || !this.canUndoDrawing) return;
+      event.preventDefault();
+      this.undoDrawing();
+      return;
+    }
+
+    if (!this.driveMode || event.ctrlKey || event.metaKey || event.altKey) return;
+
+    if (TrackViewComponent.DRIVING_KEYS.has(event.code)) {
+      // Arrows scroll the page and space activates the focused button; neither is wanted
+      // while driving.
+      event.preventDefault();
+      this.heldKeys.add(event.code);
+      return;
+    }
+
+    if (event.code === 'KeyR') {
+      event.preventDefault();
+      this.resetRun();
+    }
+  }
+
+  @HostListener('window:keyup', ['$event'])
+  onKeyUp(event: KeyboardEvent) {
+    this.heldKeys.delete(event.code);
+  }
+
+  /**
+   * A key held while the window loses focus never fires keyup, so the car would drive away on
+   * its own the moment attention moved elsewhere.
+   */
+  @HostListener('window:blur')
+  onWindowBlur() {
+    this.heldKeys.clear();
   }
 
   toggleClosedLoop() {
@@ -1676,7 +1839,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private animate(timestamp: number) {
+    const elapsed = Math.min(0.25, Math.max(0, (timestamp - this.lastTime) / 1000));
     this.lastTime = timestamp;
+
+    if (this.driveMode) this.stepPlayer(elapsed);
+
     // Only paint when something actually changed. This previously redrew every frame regardless,
     // so an idle canvas repainted 60x a second, and during training those repaints competed with
     // the simulation for the main thread. Coalescing also collapses the several redraw requests
@@ -1686,6 +1853,141 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.drawAll();
     }
     this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+  }
+
+  // ---------- Drive mode ----------
+
+  /**
+   * Runs the car forward in fixed 1/30 s steps, consuming however much real time has passed.
+   *
+   * A variable timestep would make the physics — and therefore the lap time — depend on frame
+   * rate, so a faster machine would set faster laps. The catch-up is capped so a backgrounded
+   * tab resumes rather than simulating a hundred steps in one frame.
+   */
+  private stepPlayer(elapsed: number) {
+    const car = this.playerCar;
+    if (!car || !this.hasTrack) return;
+
+    // Editing the track, changing its width or loading a preset builds a new model. Without
+    // this the car would keep driving the old geometry — running through walls that moved and
+    // being retired by edges that no longer exist.
+    if (car.boundTrack !== this.track) {
+      this.resetRun();
+      return;
+    }
+
+    const dt = TrackViewComponent.PLAYER_DT;
+    this.physicsAccumulator = Math.min(this.physicsAccumulator + elapsed, dt * TrackViewComponent.MAX_CATCHUP_STEPS);
+
+    const input = this.currentDriverInput();
+    let stepped = 0;
+    while (this.physicsAccumulator >= dt) {
+      this.physicsAccumulator -= dt;
+      stepped++;
+      if (car.update(dt, input)) {
+        this.onRunEnded();
+        break;
+      }
+    }
+
+    if (stepped === 0) return;
+    this.playerTelemetry = car.telemetry();
+    if (this.followCam) this.centerCameraOn(car.state.x, car.state.y);
+    this.requestRedraw();
+  }
+
+  /** Keyboard mapped to control targets. An analog device would set these values directly. */
+  private currentDriverInput(): DriverInput {
+    const held = (...codes: string[]) => codes.some(c => this.heldKeys.has(c));
+    const left = held('ArrowLeft', 'KeyA');
+    const right = held('ArrowRight', 'KeyD');
+    return {
+      steer: (right ? 1 : 0) - (left ? 1 : 0),
+      throttle: held('ArrowUp', 'KeyW') ? 1 : 0,
+      brake: held('ArrowDown', 'KeyS', 'Space') ? 1 : 0,
+    };
+  }
+
+  private onRunEnded() {
+    const car = this.playerCar;
+    if (!car) return;
+
+    this.playerTelemetry = car.telemetry();
+
+    if (car.status === 'finished') {
+      const record: LapRecord = { time: car.lapTime, valid: true };
+      this.lastLap = record;
+      this.lapHistory = [record, ...this.lapHistory].slice(0, 12);
+      if (!this.playerBestLap || car.lapTime < this.playerBestLap) {
+        this.playerBestLap = car.lapTime;
+        this.playerBestLine = car.trail.map(p => ({ ...p }));
+      }
+    } else {
+      const note = car.telemetry().beyondEdge > 1
+        ? 'Off track — run ended'
+        : 'Too long off track — run ended';
+      this.lastLap = { time: car.lapTime, valid: false, note };
+    }
+    this.requestRedraw();
+  }
+
+  toggleDriveMode() {
+    this.setDriveMode(!this.driveMode);
+  }
+
+  setDriveMode(on: boolean) {
+    this.driveMode = on;
+    this.heldKeys.clear();
+    this.physicsAccumulator = 0;
+
+    if (on) {
+      this.activeTab = 'drive';
+      this.resetRun();
+    } else {
+      this.playerTelemetry = null;
+    }
+    this.requestRedraw();
+  }
+
+  /** Puts the car back on the start line, ready for another attempt. */
+  resetRun() {
+    if (!this.playerCar || !this.track) return;
+    this.playerCar.reset(this.track);
+    this.playerTelemetry = this.playerCar.telemetry();
+    this.physicsAccumulator = 0;
+    if (this.followCam) this.centerCameraOn(this.playerCar.state.x, this.playerCar.state.y);
+    this.requestRedraw();
+  }
+
+  clearLapHistory() {
+    this.lapHistory = [];
+    this.lastLap = null;
+    this.playerBestLap = 0;
+    this.playerBestLine = [];
+    this.requestRedraw();
+  }
+
+  toggleFollowCam() {
+    this.followCam = !this.followCam;
+    if (this.followCam && this.playerCar) {
+      this.centerCameraOn(this.playerCar.state.x, this.playerCar.state.y);
+    }
+    this.requestRedraw();
+  }
+
+  toggleShowPlayerLine() {
+    this.showPlayerLine = !this.showPlayerLine;
+    this.requestRedraw();
+  }
+
+  private centerCameraOn(worldX: number, worldY: number) {
+    this.camera.offsetX = this.viewWidth / 2 - worldX * PX_PER_M * this.camera.scale;
+    this.camera.offsetY = this.viewHeight / 2 - worldY * PX_PER_M * this.camera.scale;
+  }
+
+  /** The lap the driver is chasing: the AI's best if it has set one, else the reference lap. */
+  get aiBestLap(): number {
+    return this.aiStats.bestLapTime > 0 ? this.aiStats.bestLapTime : 0;
   }
 
   // ---------- Template getters ----------

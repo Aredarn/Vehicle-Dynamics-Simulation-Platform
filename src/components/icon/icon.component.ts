@@ -24,6 +24,8 @@ const ICONS: Record<string, string> = {
   reset: '<path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16.5 3v3.5H13"/>',
   trash: '<path d="M4 6h12"/><path d="M8 6V4.5h4V6"/><path d="M5.5 6l.7 10a1 1 0 0 0 1 .9h5.6a1 1 0 0 0 1-.9l.7-10"/>',
   compare: '<path d="M10 3v14"/><path d="M6 6.5 3 10l3 3.5"/><path d="m14 6.5 3 3.5-3 3.5"/>',
+  steering: '<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.4"/><path d="M3.3 8.6h13.4M10 12.4V17"/>',
+  flag: '<path d="M5 17V3"/><path d="M5 4h10l-2 3 2 3H5"/>',
 
   // Theme
   sun: '<circle cx="10" cy="10" r="3.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M15.4 4.6 14 6M6 14l-1.4 1.4"/>',

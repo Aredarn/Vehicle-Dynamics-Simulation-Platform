@@ -162,6 +162,45 @@ export interface VehicleStepResult {
   frontUsage: number; // combined front-axle grip usage, ~1 = at the limit
   rearUsage: number;  // combined rear-axle grip usage, ~1 = at the limit
   longitudinalAccel: number;
+  /** Lateral acceleration actually produced this step (m/s^2). */
+  lateralAccel: number;
+  /** The most lateral acceleration the tires could have produced, after longitudinal demands. */
+  maxLateralAccel: number;
+  /** Axle loads after longitudinal weight transfer (N) — what makes trail braking pay. */
+  frontLoad: number;
+  rearLoad: number;
+  /** Longitudinal force contributions (N), for readouts that need the actual force split. */
+  engineForce: number;
+  brakeForce: number;
+  dragForce: number;
+  /** Steering asked for more yaw than grip allowed, so the car ran wide instead: understeer. */
+  gripLimited: boolean;
+}
+
+/**
+ * Track-limit rules shared by the AI and the human driver.
+ *
+ * Both sides read these same numbers so a player's lap is judged exactly as an agent's is.
+ * Duplicating them would let one side be tuned without the other, which would silently
+ * invalidate every lap-time comparison between them.
+ */
+export const TRACK_LIMITS = {
+  /** Grip falls from 1.0 to this floor across `gripRampMetres` beyond the edge. */
+  offTrackGripFloor: 0.35,
+  gripRampMetres: 0.5,
+  /** Retired once this far past the edge — clearly in the barriers, not just a wide exit. */
+  hardCutoffMetres: 8,
+  /** A lap counts when the car is within this of the end and still pointing forward. */
+  finishToleranceMetres: 6,
+  /** Arc-length progress may not outrun distance actually travelled by more than this factor. */
+  progressSlack: 1.4,
+} as const;
+
+/** Grip scale for a car this far beyond the edge — grass and gravel, not an instant stop. */
+export function offTrackGripMultiplier(beyondEdge: number): number {
+  if (beyondEdge <= 0) return 1;
+  const t = clamp(beyondEdge / TRACK_LIMITS.gripRampMetres, 0, 1);
+  return 1 - t * (1 - TRACK_LIMITS.offTrackGripFloor);
 }
 
 const BASE_STEER_RATE = 2.2; // rad/s, max commanded yaw rate at full steering lock and no grip limit
@@ -287,5 +326,17 @@ export function stepVehicleDynamics(
   const frontUsage = Math.sqrt(frontLongUsage * frontLongUsage + gripUsedRatio * gripUsedRatio * (1 - frontLongUsage * frontLongUsage));
   const rearUsage = Math.sqrt(rearLongUsage * rearLongUsage + gripUsedRatio * gripUsedRatio * (1 - rearLongUsage * rearLongUsage));
 
-  return { frontUsage, rearUsage, longitudinalAccel: ax * longGripScale };
+  return {
+    frontUsage,
+    rearUsage,
+    longitudinalAccel: ax * longGripScale,
+    lateralAccel: latAccUsed,
+    maxLateralAccel: maxLatAcc,
+    frontLoad,
+    rearLoad,
+    engineForce,
+    brakeForce,
+    dragForce,
+    gripLimited: Math.abs(desiredYawRate) > maxYawRateFromGrip + 1e-9,
+  };
 }

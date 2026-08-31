@@ -13,6 +13,8 @@ import {
   getDrivingCharacteristics,
   stepVehicleDynamics,
   DrivingCharacteristics,
+  TRACK_LIMITS,
+  offTrackGripMultiplier,
 } from '../utils/car-physics';
 import { runPolicy } from '../utils/neural-policy';
 
@@ -167,7 +169,7 @@ export class CarAgent {
       this.track,
       this.driving.carRadius
     );
-    const gripMultiplier = this.computeGripMultiplier(beyondEdgeBefore);
+    const gripMultiplier = offTrackGripMultiplier(beyondEdgeBefore);
     const prevX = this.state.x;
     const prevY = this.state.y;
 
@@ -224,10 +226,9 @@ export class CarAgent {
     // every segment on the next step and was being scored as a crash. That made finishing a
     // knife-edge — the car had to stop inside a few metres of the end rather than drive over it,
     // so laps were never completed and the whole lap-time incentive stayed dormant.
-    const FINISH_TOLERANCE = 6; // meters
     const nearFinishLine = this.trackLength > 0
       && this.maxProgress >= this.trackLength * 0.85
-      && Math.max(this.maxProgress, closestAfter.s) >= this.trackLength - FINISH_TOLERANCE;
+      && Math.max(this.maxProgress, closestAfter.s) >= this.trackLength - TRACK_LIMITS.finishToleranceMetres;
 
     if (nearFinishLine && forwardAlignment > 0.3) {
       this.maxProgress = this.trackLength;
@@ -239,8 +240,7 @@ export class CarAgent {
       return;
     }
 
-    const HARD_CUTOFF_DISTANCE = 8; // meters past the edge — clearly in the barrier, not a wide exit
-    if (beyondEdgeAfter > HARD_CUTOFF_DISTANCE || this.offTrackTime >= this.driving.offTrackGraceSeconds) {
+    if (beyondEdgeAfter > TRACK_LIMITS.hardCutoffMetres || this.offTrackTime >= this.driving.offTrackGraceSeconds) {
       this.state.alive = false;
       this.genome.alive = false;
     }
@@ -252,9 +252,8 @@ export class CarAgent {
       // later point on the centerline than the car really earned, rewarding illegitimate
       // corner-cutting as if it were genuine progress. The slack factor still lets a real
       // racing line (legitimately shorter than the raw centerline) advance a bit faster.
-      const PROGRESS_SLACK = 1.4;
       const rawCandidate = Math.max(this.maxProgress, closestAfter.s);
-      const progressCandidate = Math.min(rawCandidate, this.maxProgress + distMoved * PROGRESS_SLACK);
+      const progressCandidate = Math.min(rawCandidate, this.maxProgress + distMoved * TRACK_LIMITS.progressSlack);
       if (progressCandidate > this.maxProgress + 0.02) {
         progressDelta = progressCandidate - this.maxProgress;
         this.lastProgressS = this.maxProgress;
@@ -274,14 +273,6 @@ export class CarAgent {
       forwardAlignment
     );
     this.updateFitness(progressDelta);
-  }
-
-  private computeGripMultiplier(beyondEdge: number): number {
-    if (beyondEdge <= 0) return 1;
-    const transition = 0.5; // meters over which grip ramps down to the off-track floor
-    const floor = 0.35;
-    const t = this.clamp(beyondEdge / transition, 0, 1);
-    return 1 - t * (1 - floor);
   }
 
   private accumulateDrivingQuality(

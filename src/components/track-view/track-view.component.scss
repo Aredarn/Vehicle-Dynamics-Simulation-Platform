@@ -461,3 +461,100 @@
   cursor: pointer;
   margin-bottom: var(--sp-3);
 }
+
+/* ── Drive mode ─────────────────────────────────────────────── */
+
+/**
+ * The HUD sits over the canvas rather than in the telemetry drawer: while driving, the eyes are
+ * on the car, and a readout you have to look away to find is a readout you never read.
+ */
+.driver-hud-slot {
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drive__toggle {
+  width: 100%;
+  margin-bottom: var(--sp-2);
+}
+
+.keycaps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+
+.keycaps__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+
+  span:last-child {
+    margin-left: auto;
+    color: var(--text-3);
+  }
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-1);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-1);
+}
+
+.laps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.laps__row {
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr;
+  gap: var(--sp-2);
+  padding: 4px 6px;
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+
+  &--head {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  &.is-best {
+    background: var(--accent-soft);
+    color: var(--text-1);
+    font-weight: 600;
+  }
+}
+
+.laps__delta {
+  text-align: right;
+  color: var(--danger);
+
+  &.is-ahead { color: var(--success); }
+}

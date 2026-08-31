@@ -270,6 +270,88 @@
           </div>
         </section>
       </ng-container>
+      <!-- Drive -->
+      <ng-container *ngIf="activeTab === 'drive'">
+        <section class="section">
+          <h3 class="section__title">
+            <span>Drive It Yourself</span>
+            <span class="num section__meta">{{ trackLength }}</span>
+          </h3>
+
+          <p class="hint" *ngIf="!hasTrack">Build or load a track first, then come back here to drive it.</p>
+
+          <button
+            type="button"
+            class="btn drive__toggle"
+            [class.btn--ghost]="driveMode"
+            [disabled]="!hasTrack || isTraining"
+            (click)="toggleDriveMode()"
+          >
+            <app-icon [name]="driveMode ? 'stop' : 'play'" [size]="15"></app-icon>
+            <span>{{ driveMode ? 'Leave the car' : 'Take the wheel' }}</span>
+          </button>
+
+          <p class="hint" *ngIf="isTraining">Training is running — stop it before driving.</p>
+
+          <div class="keycaps" *ngIf="driveMode">
+            <div class="keycaps__row"><kbd>W</kbd><span>/</span><kbd>↑</kbd><span>Throttle</span></div>
+            <div class="keycaps__row"><kbd>S</kbd><span>/</span><kbd>↓</kbd><span>Brake</span></div>
+            <div class="keycaps__row"><kbd>A</kbd><kbd>D</kbd><span>Steer</span></div>
+            <div class="keycaps__row"><kbd>R</kbd><span>Restart lap</span></div>
+          </div>
+
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="followCam" (change)="toggleFollowCam()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Follow the car</span>
+          </label>
+
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="showPlayerLine" (change)="toggleShowPlayerLine()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Show my line</span>
+          </label>
+
+          <button type="button" class="btn btn--ghost" *ngIf="driveMode" (click)="resetRun()">
+            <app-icon name="reset" [size]="15"></app-icon>
+            <span>Restart lap</span>
+          </button>
+        </section>
+
+        <section class="section" *ngIf="lapHistory.length">
+          <h3 class="section__title">
+            <span>My Laps</span>
+            <button type="button" class="btn btn--quiet btn--sm" (click)="clearLapHistory()">Clear</button>
+          </h3>
+
+          <ul class="laps">
+            <li class="laps__row laps__row--head">
+              <span>#</span><span>Time</span><span>vs {{ aiBestLap ? 'AI' : 'ref' }}</span>
+            </li>
+            <li class="laps__row" *ngFor="let lap of lapHistory; let i = index" [class.is-best]="lap.time === playerBestLap">
+              <span class="num">{{ lapHistory.length - i }}</span>
+              <span class="num">{{ lap.time | number: '1.3-3' }}s</span>
+              <span class="num laps__delta"
+                    [class.is-ahead]="(aiBestLap || estimatedLapTime) && lap.time < (aiBestLap || estimatedLapTime)">
+                {{ (aiBestLap || estimatedLapTime)
+                    ? ((lap.time - (aiBestLap || estimatedLapTime)) > 0 ? '+' : '') + ((lap.time - (aiBestLap || estimatedLapTime)) | number: '1.2-2')
+                    : '—' }}
+              </span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="section">
+          <h3 class="section__title"><span>How It's Judged</span></h3>
+          <p class="hint">
+            Your car runs the <strong>same physics and the same track limits as the AI</strong> —
+            identical grip, weight transfer and friction circle, stepped at the same fixed rate.
+            Run more than {{ 8 }} m off the road, or spend too long off it, and the run ends,
+            exactly as an agent's would. Cutting a corner earns no extra progress.
+          </p>
+        </section>
+      </ng-container>
+
     </div>
   </aside>
 
@@ -317,9 +399,19 @@
         Import a track image from the Track panel, then trace it
       </p>
 
-      <p class="viewport-hint viewport-hint--corner" *ngIf="hasTrack">
+      <p class="viewport-hint viewport-hint--corner" *ngIf="hasTrack && !driveMode">
         Scroll to zoom · Alt + drag to pan
       </p>
+
+      <div class="driver-hud-slot" *ngIf="driveMode && playerTelemetry">
+        <app-driver-hud
+          [telemetry]="playerTelemetry"
+          [aiBestLap]="aiBestLap"
+          [referenceLap]="estimatedLapTime"
+          [bestLap]="playerBestLap"
+          [lastLap]="lastLap"
+        ></app-driver-hud>
+      </div>
     </div>
 
     <section class="telemetry" [class.is-collapsed]="!telemetryOpen">
