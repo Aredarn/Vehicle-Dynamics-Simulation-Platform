@@ -7,6 +7,7 @@ import {
   getDrivingCharacteristics,
   stepVehicleDynamics,
   offTrackGripMultiplier,
+  driveSplit,
   TRACK_LIMITS,
   DrivingCharacteristics,
   VehicleStepResult,
@@ -53,6 +54,12 @@ export interface PlayerTelemetry {
   rearSlipDeg: number;
   /** Aerodynamic downforce at the current speed (N) — grows with the square of speed. */
   downforce: number;
+  /** Drive force reaching each axle (N), so the layout and diff are visible while driving. */
+  frontDriveForce: number;
+  rearDriveForce: number;
+  /** Share of drive force going through the front axle, 0..1. */
+  frontDriveShare: number;
+  drivetrainLabel: string;
 
   frontLoad: number;
   rearLoad: number;
@@ -351,6 +358,12 @@ export class PlayerCar {
       frontSlipDeg: step ? (step.frontSlipAngle * 180) / Math.PI : 0,
       rearSlipDeg: step ? (step.rearSlipAngle * 180) / Math.PI : 0,
       downforce: step ? step.downforce : 0,
+      frontDriveForce: step ? step.frontDriveForce : 0,
+      rearDriveForce: step ? step.rearDriveForce : 0,
+      frontDriveShare: step && step.frontDriveForce + step.rearDriveForce > 1
+        ? step.frontDriveForce / (step.frontDriveForce + step.rearDriveForce)
+        : driveSplit(this.settings).front,
+      drivetrainLabel: `${(this.settings.drivetrain ?? 'rwd').toUpperCase()} · ${(this.settings.differential ?? 'lsd') === 'lsd' ? 'LSD' : 'Open'}`,
 
       frontLoad: step ? step.frontLoad : 0,
       rearLoad: step ? step.rearLoad : 0,

@@ -23,6 +23,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 0,
       finalDrive: 4.2,
       wheelbase: 2.5,
+      drivetrain: 'fwd',
+      differential: 'open',
     },
   },
   {
@@ -39,6 +41,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 150,
       finalDrive: 3.6,
       wheelbase: 2.7,
+      drivetrain: 'rwd',
+      differential: 'lsd',
     },
   },
   {
@@ -55,6 +59,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 600,
       finalDrive: 3.4,
       wheelbase: 2.6,
+      drivetrain: 'rwd',
+      differential: 'lsd',
     },
   },
   {
@@ -71,6 +77,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 400,
       finalDrive: 3.0,
       wheelbase: 1.53,
+      drivetrain: 'rwd',
+      differential: 'lsd',
     },
   },
   {
@@ -87,6 +95,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 1200,
       finalDrive: 3.2,
       wheelbase: 2.9,
+      drivetrain: 'rwd',
+      differential: 'lsd',
     },
   },
   {
@@ -103,6 +113,8 @@ export const CAR_PRESETS: CarPreset[] = [
       downforce: 900,
       finalDrive: 3.5,
       wheelbase: 2.65,
+      drivetrain: 'awd',
+      differential: 'lsd',
     },
   },
 ];

@@ -333,6 +333,15 @@
   &.is-over { background: var(--danger); }
 }
 
+/* Drive split: the filled portion is torque through the front axle. */
+.drive__bar { background: var(--data-3); }
+
+.drive__front {
+  display: block;
+  height: 100%;
+  background: var(--data-1);
+}
+
 .transfer__bar { overflow: visible; }
 
 .transfer__split {
@@ -348,7 +357,7 @@
 .axle__val {
   font-size: var(--fs-micro);
   color: var(--text-2);
-  min-width: 34px;
+  min-width: 52px;
   text-align: right;
 }
 

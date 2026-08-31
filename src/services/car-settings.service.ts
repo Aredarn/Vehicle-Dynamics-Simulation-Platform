@@ -2,6 +2,15 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { CAR_PRESETS, getPresetById } from '../models/car-presets';
 
+/** Which axle (or axles) the engine drives. */
+export type Drivetrain = 'fwd' | 'rwd' | 'awd';
+
+/**
+ * How the driven axle shares torque between its two wheels. An open diff sends equal torque to
+ * both, so the wheel with less grip sets the limit; a limited-slip diff ties them together.
+ */
+export type Differential = 'open' | 'lsd';
+
 export interface CarSettings {
   name: string;
   presetId: string;
@@ -13,6 +22,8 @@ export interface CarSettings {
   downforce: number;
   finalDrive: number;
   wheelbase: number;
+  drivetrain: Drivetrain;
+  differential: Differential;
 }
 
 export const DEFAULT_CAR_SETTINGS: CarSettings = {
@@ -26,6 +37,8 @@ export const DEFAULT_CAR_SETTINGS: CarSettings = {
   downforce: 150,
   finalDrive: 3.6,
   wheelbase: 2.7,
+  drivetrain: 'rwd',
+  differential: 'lsd',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -42,7 +55,7 @@ export class CarSettingsService {
     const normalizedSettings: Partial<CarSettings> = {};
 
     for (const [key, value] of Object.entries(newSettings) as Array<[keyof CarSettings, CarSettings[keyof CarSettings] | string | undefined]>) {
-      if (key === 'presetId' || key === 'name') {
+      if (key === 'presetId' || key === 'name' || key === 'drivetrain' || key === 'differential') {
         (normalizedSettings as Record<string, unknown>)[key] = value;
         continue;
       }

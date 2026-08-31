@@ -31,12 +31,36 @@ export function calculatePerformance(settings: CarSettings): PerformanceMetrics 
   // Downforce grows with speed, so load, rolling drag and the traction limit all follow it.
   const loadAt = (v: number) => mass * g + downforce * Math.pow(v / (200 / 3.6), 2);
 
+  /**
+   * How much force the driven axle(s) can put down, allowing for the load that shifts rearward
+   * as the car accelerates. This is why a front-driven car launches worse than a rear-driven one
+   * with identical power: the axle doing the work is the one going light.
+   *
+   * The transfer depends on the acceleration it is limiting, so it is solved by a few passes.
+   */
+  const split = driveSplit(settings);
+  const wheelbase = Math.max(1.2, toNumber(settings.wheelbase, 2.5));
+  const tractionAt = (normalForce: number) => {
+    let accel = 0;
+    let limit = mu * normalForce;
+    for (let pass = 0; pass < 4; pass++) {
+      const transfer = mass * accel * 0.5 / wheelbase;
+      const frontLoad = clamp(normalForce / 2 - transfer, normalForce * 0.05, normalForce);
+      const rearLoad = clamp(normalForce / 2 + transfer, normalForce * 0.05, normalForce);
+      const fromFront = split.front > 0 ? (mu * frontLoad) / split.front : Infinity;
+      const fromRear = split.rear > 0 ? (mu * rearLoad) / split.rear : Infinity;
+      limit = Math.min(fromFront, fromRear);
+      accel = limit / Math.max(mass, 1);
+    }
+    return limit;
+  };
+
   let vTop = 0;
   for (let v = 0; v < 120; v += 0.25) {
     const normalForce = loadAt(v);
     const dragForce = dragConst * v * v;
     const maxPowerForce = v > 1 ? effectivePower / v : effectivePower;
-    const engineForce = Math.min(maxPowerForce * driveRatio, mu * normalForce);
+    const engineForce = Math.min(maxPowerForce * driveRatio, tractionAt(normalForce));
     const netForce = engineForce - dragForce - 0.015 * normalForce;
     if (netForce <= 0) break;
     vTop = v;
@@ -51,7 +75,7 @@ export function calculatePerformance(settings: CarSettings): PerformanceMetrics 
     const normalForce = loadAt(v);
     const dragForce = dragConst * v * v;
     const maxPowerForce = v > 1 ? effectivePower / v : effectivePower;
-    const driveForce = Math.min(maxPowerForce * driveRatio, mu * normalForce);
+    const driveForce = Math.min(maxPowerForce * driveRatio, tractionAt(normalForce));
     const netForce = driveForce - dragForce - 0.015 * normalForce;
     const accel = netForce > 0 ? netForce / Math.max(mass, 1) : 0;
     v += accel * dt;
@@ -194,6 +218,9 @@ export interface VehicleStepResult {
   rearSlipAngle: number;
   /** Aerodynamic downforce at this speed (N). */
   downforce: number;
+  /** Drive force actually reaching each axle (N) — shows what the layout and diff are doing. */
+  frontDriveForce: number;
+  rearDriveForce: number;
 }
 
 /**
@@ -269,6 +296,60 @@ const PHYSICS_SUBSTEPS = 8;
 const KINEMATIC_FULL = 2.0;  // m/s
 const DYNAMIC_FULL = 6.0;    // m/s
 
+/**
+ * Torque split for all-wheel drive. Performance AWD is normally rear-biased rather than 50/50,
+ * so the car still rotates on throttle instead of ploughing straight on.
+ */
+const AWD_FRONT_TORQUE_SHARE = 0.4;
+
+/**
+ * How firmly a limited-slip diff ties an axle's two wheels together. 0 is an open diff, 1 a
+ * solid spool; a road/race clutch-pack LSD sits around here.
+ */
+const LSD_LOCK = 0.6;
+
+/**
+ * Yaw moment an LSD produces per newton of drive force, scaled by track width.
+ *
+ * Tying the driven wheels together makes the inner wheel push as hard as the outer one, and the
+ * corner wants them turning at different speeds. The resulting force imbalance across the axle
+ * resists the turn — the planted, mildly understeering feel an LSD gives on power, and the thing
+ * an open diff conspicuously does not do.
+ */
+const DIFF_YAW_COEFFICIENT = 0.12;
+
+/** Track width, assumed from wheelbase — CarSettings carries no track measurement. */
+const TRACK_WIDTH_RATIO = 0.58;
+
+/** Fraction of engine torque reaching each axle for a given layout. */
+export function driveSplit(settings: CarSettings): { front: number; rear: number } {
+  switch (settings.drivetrain ?? 'rwd') {
+    case 'fwd': return { front: 1, rear: 0 };
+    case 'awd': return { front: AWD_FRONT_TORQUE_SHARE, rear: 1 - AWD_FRONT_TORQUE_SHARE };
+    default: return { front: 0, rear: 1 };
+  }
+}
+
+/** 0 for an open diff, LSD_LOCK for a limited-slip one. */
+export function diffLocking(settings: CarSettings): number {
+  return (settings.differential ?? 'lsd') === 'lsd' ? LSD_LOCK : 0;
+}
+
+/**
+ * How much drive force an axle can actually put down, given that cornering has unloaded its
+ * inner wheel.
+ *
+ * An open diff feeds both wheels equal torque, so the lightly loaded inner wheel spins first and
+ * caps the whole axle at twice *its* grip. A limited-slip diff lets the loaded outer wheel take
+ * up the slack, which is why an LSD car can get on the power so much earlier out of a corner.
+ * At `lock` = 1 the axle uses its full load; at 0 it is limited by the inner wheel alone.
+ */
+export function axleTraction(mu: number, axleLoad: number, lateralTransfer: number, lock: number): number {
+  const inner = Math.max(0, axleLoad / 2 - lateralTransfer / 2);
+  const outer = Math.min(axleLoad, axleLoad / 2 + lateralTransfer / 2);
+  return mu * (2 * inner + lock * (outer - inner));
+}
+
 /** Downforce in CarSettings is the figure produced at this speed; aero scales with v^2. */
 const AERO_REFERENCE_SPEED = 200 / 3.6; // m/s
 
@@ -336,6 +417,13 @@ export function stepVehicleDynamics(
   let frontLoad = 0, rearLoad = 0, engineForce = 0, brakeForce = 0, dragForce = 0;
   let frontUsage = 0, rearUsage = 0, latAcc = 0, maxLatAcc = 0, longAccel = 0;
   let frontSlip = 0, rearSlip = 0, downforce = 0;
+  let frontDrive = 0, rearDrive = 0;
+
+  const split = driveSplit(settings);
+  const lock = diffLocking(settings);
+  const trackWidth = Math.max(1, wheelbase * TRACK_WIDTH_RATIO);
+  // Seeded from the incoming state so the first substep already knows the car is cornering.
+  let lateralAccelEstimate = Math.abs(yawRate * vx);
 
   for (let i = 0; i < PHYSICS_SUBSTEPS; i++) {
     const speed = Math.hypot(vx, vy);
@@ -369,9 +457,24 @@ export function stepVehicleDynamics(
     const frontGripLimit = grip * frontLoad;
     const rearGripLimit = grip * rearLoad;
 
-    engineForce = controls.throttle > 0
-      ? Math.min(maxPowerForce * driveRatio, rearGripLimit) * controls.throttle
-      : 0;
+    // Lateral load transfer unloads the inside wheels, which is what makes the differential
+    // matter at all. Taken from the previous substep's lateral acceleration, which at 8
+    // substeps per frame is a close enough estimate and avoids a circular dependency.
+    const lateralTransfer = mass * lateralAccelEstimate * CG_HEIGHT / trackWidth;
+    const totalLoad = Math.max(frontLoad + rearLoad, 1);
+    const frontLateralTransfer = lateralTransfer * (frontLoad / totalLoad);
+    const rearLateralTransfer = lateralTransfer * (rearLoad / totalLoad);
+
+    const frontTractionLimit = axleTraction(grip, frontLoad, frontLateralTransfer, lock);
+    const rearTractionLimit = axleTraction(grip, rearLoad, rearLateralTransfer, lock);
+
+    // Engine torque goes to whichever axles the layout drives, each capped by what that axle
+    // can actually put down.
+    const driveDemand = controls.throttle > 0 ? maxPowerForce * driveRatio * controls.throttle : 0;
+    frontDrive = Math.min(driveDemand * split.front, frontTractionLimit);
+    rearDrive = Math.min(driveDemand * split.rear, rearTractionLimit);
+    engineForce = frontDrive + rearDrive;
+
     const frontBrake = controls.brake > 0
       ? Math.min(controls.brake * BRAKE_BIAS_FRONT * wholeCarLimit, frontGripLimit)
       : 0;
@@ -384,8 +487,10 @@ export function stepVehicleDynamics(
     // the car is actually rolling; they cannot drive it backwards.
     const rollDirection = Math.sign(vx) || 1;
     const brakeFade = Math.min(1, Math.abs(vx));
-    const frontLongForce = -rollDirection * frontBrake * brakeFade;
-    const rearLongForce = engineForce - rollDirection * rearBrake * brakeFade;
+    // Front-driven axles spend their grip on traction as well as steering, which is exactly why
+    // a front-wheel-drive car pushes wide when you get greedy with the throttle mid-corner.
+    const frontLongForce = frontDrive - rollDirection * frontBrake * brakeFade;
+    const rearLongForce = rearDrive - rollDirection * rearBrake * brakeFade;
 
     // Slip angles: the difference between where each axle points and where it is travelling.
     // The denominator is floored so the angle stays finite as the car comes to a stop.
@@ -410,7 +515,11 @@ export function stepVehicleDynamics(
     // Body-frame accelerations, including the centripetal cross terms.
     const ax = netLongForce / mass + yawRate * vy;
     const ay = (frontLatComponent + rearLatForce + dragY) / mass - yawRate * vx;
-    const yawAcc = (lengthFront * frontLatComponent - lengthRear * rearLatForce) / yawInertia;
+    // A limited-slip diff resists the wheel-speed difference a corner demands, which shows up
+    // as a yaw moment opposing the turn. An open diff (lock = 0) contributes nothing here.
+    const diffYawMoment = -Math.sign(yawRate) * lock * engineForce * trackWidth * DIFF_YAW_COEFFICIENT;
+    const yawAcc =
+      (lengthFront * frontLatComponent - lengthRear * rearLatForce + diffYawMoment) / yawInertia;
 
     // vx is NOT floored at zero: a car rotated past sideways is genuinely travelling backwards
     // along its own axis, and pinning it to zero deletes that momentum — which turned every
@@ -438,6 +547,7 @@ export function stepVehicleDynamics(
     frontSlip = alphaFront;
     rearSlip = alphaRear;
     latAcc = Math.abs(frontLatComponent + rearLatForce) / mass;
+    lateralAccelEstimate = latAcc;
     maxLatAcc = (muFront * frontLoad + muRear * rearLoad) / mass;
     longAccel = ax;
     frontUsage = Math.hypot(frontLongForce, frontLatForce) / Math.max(frontGripLimit, 1);
@@ -470,5 +580,7 @@ export function stepVehicleDynamics(
     frontSlipAngle: frontSlip,
     rearSlipAngle: rearSlip,
     downforce,
+    frontDriveForce: frontDrive,
+    rearDriveForce: rearDrive,
   };
 }

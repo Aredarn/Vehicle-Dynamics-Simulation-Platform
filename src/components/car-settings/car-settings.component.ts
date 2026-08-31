@@ -2,7 +2,7 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { Component, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
+import { CarSettings, CarSettingsService, Drivetrain, Differential } from '../../services/car-settings.service';
 import { calculatePerformance } from '../../utils/car-physics';
 
 /** Numeric vehicle parameters, described once and rendered in a loop. */
@@ -41,6 +41,17 @@ export class CarSettingsComponent implements OnDestroy {
     { key: 'downforce', label: 'Downforce', unit: 'N', min: 0, max: 3000, step: 10 },
     { key: 'finalDrive', label: 'Final drive', unit: '', min: 2, max: 5, step: 0.01 },
     { key: 'wheelbase', label: 'Wheelbase', unit: 'm', min: 1.5, max: 3.5, step: 0.01 },
+  ];
+
+  readonly drivetrains: Array<{ value: Drivetrain; label: string; hint: string }> = [
+    { value: 'fwd', label: 'FWD', hint: 'Front axle drives and steers, so power pushes the nose wide' },
+    { value: 'rwd', label: 'RWD', hint: 'Rear axle drives; power rotates the car and can step the back out' },
+    { value: 'awd', label: 'AWD', hint: 'Both axles share the load — most traction, least drama' },
+  ];
+
+  readonly differentials: Array<{ value: Differential; label: string; hint: string }> = [
+    { value: 'open', label: 'Open', hint: 'Equal torque both sides, so the unloaded inside wheel spins first' },
+    { value: 'lsd', label: 'LSD', hint: 'Ties the driven wheels together: more exit traction, more stability' },
   ];
 
   private settingsSub!: Subscription;

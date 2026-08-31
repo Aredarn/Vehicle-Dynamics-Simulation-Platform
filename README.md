@@ -19,7 +19,9 @@ learn to drive that track as fast as it can, using trail braking and a proper ra
 | Tire grip | μ | The whole friction budget — braking, traction and cornering |
 | Downforce | N @ 200 km/h | Aerodynamic load, growing with the square of speed |
 | Final drive ratio | – | Scales drive force at the wheels |
-| Wheelbase | m | Weight transfer geometry, and the drawn size of the car |
+| Wheelbase | m | Weight transfer geometry, yaw inertia, and the drawn size of the car |
+| Drivetrain | FWD / RWD / AWD | Which axle gets the power — and so which end lets go first |
+| Differential | Open / LSD | How the driven axle shares torque between its two wheels |
 
 <img width="1919" height="1028" alt="VDSP screenshot" src="https://github.com/user-attachments/assets/f71a047a-a172-433f-b11a-5ba0bc3d0ecd" />
 
@@ -155,6 +157,29 @@ leaves it nothing to corner with, so the back steps out — **oversteer**, which
 catch with opposite lock or you spin. The plateau at the end of the tyre curve is what
 makes a slide catchable rather than terminal: a fully sideways tyre is still skidding
 against the road, not sliding on ice.
+
+**Drivetrain and differential** — engine torque goes to whichever axle the layout drives, and
+each axle is capped by what it can actually put down:
+
+```
+FWD  front 100%        RWD  rear 100%        AWD  front 40% / rear 60%
+```
+
+Because a driven axle spends grip on traction that it can no longer spend on cornering, the
+layout decides which end runs out first. Get greedy with the throttle mid-corner and a FWD car
+pushes wide, a RWD car rotates, and an AWD car does a little of both.
+
+Cornering also unloads the inside wheels, and that is where the differential earns its keep:
+
+```
+inner = Fz/2 − ΔFz_lat/2                 outer = Fz/2 + ΔFz_lat/2
+usable = μ · (2·inner + lock·(outer − inner))      lock: 0 = open, 0.6 = LSD
+```
+
+An open diff feeds both wheels equal torque, so the light inside wheel spins first and caps the
+axle at twice *its* grip. An LSD lets the loaded outer wheel take up the slack. An LSD also
+resists the wheel-speed difference a corner demands, which shows up as a yaw moment opposing
+the turn.
 
 The dynamics run in 8 substeps per frame. Tyre forces are stiff, and a single step at
 30 Hz overshoots once they saturate, spiralling into a spin no input can recover.

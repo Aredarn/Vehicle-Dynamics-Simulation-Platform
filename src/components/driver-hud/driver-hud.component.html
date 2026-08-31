@@ -131,6 +131,14 @@
       <span class="axle__val num">{{ telemetry.rearUsage * 100 | number: '1.0-0' }}%</span>
     </div>
 
+    <div class="axle">
+      <span class="axle__label">DRIVE</span>
+      <div class="axle__bar drive__bar">
+        <span class="drive__front" [style.width.%]="telemetry.frontDriveShare * 100"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.drivetrainLabel }}</span>
+    </div>
+
     <div class="transfer">
       <span class="axle__label">LOAD</span>
       <div class="transfer__bar">
