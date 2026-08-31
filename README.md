@@ -17,7 +17,7 @@ learn to drive that track as fast as it can, using trail braking and a proper ra
 | Drag coefficient | – | Aerodynamic drag |
 | Frontal area | m² | Aerodynamic drag |
 | Tire grip | μ | The whole friction budget — braking, traction and cornering |
-| Downforce | N | Extra tyre load, so more grip without more mass |
+| Downforce | N @ 200 km/h | Aerodynamic load, growing with the square of speed |
 | Final drive ratio | – | Scales drive force at the wheels |
 | Wheelbase | m | Weight transfer geometry, and the drawn size of the car |
 
@@ -118,15 +118,49 @@ F_lat_max = √(1 − (F_long / (μ·Fz))²) · μ·Fz          per axle
 a_lat_max = (F_lat_front + F_lat_rear) / m
 ```
 
-**Rotation** — the steering command asks for a yaw rate, and grip decides whether
-the car can deliver it:
+**Aerodynamics** — downforce is not a constant. It grows with the square of speed,
+which is why a fast car corners far harder in a quick corner than a slow one:
 
 ```
-ω = clamp(steer · 2.2 rad/s,  ±a_lat_max / v)
-a_x' = a_x · √(1 − (a_lat_used / a_lat_max)²)
+F_down = downforce₂₀₀ · (v / 55.6)²      (the setting is the figure at 200 km/h)
 ```
 
-Ask for more rotation than grip allows and the car simply understeers instead.
+**Rotation — slip angles** — the car does not simply point where it is steered. It
+carries a sideways velocity as well as a forward one, so where it *points* and where
+it *goes* can differ. That difference is what a slide is:
+
+```
+δ       = steer · 26°                    (a real steering rack, not a yaw request)
+α_front = atan2(v_y + a·ω, v_x) − δ
+α_rear  = atan2(v_y − b·ω, v_x)
+```
+
+Each axle's lateral force comes from its slip angle through a saturating tyre curve:
+grip rises steeply, peaks near 6.5°, then falls away to a sliding plateau.
+
+```
+F_y = −μ·Fz · sin(1.9 · atan(9.5 · α))   blended into 0.78·μ·Fz past ~40°
+```
+
+Those forces then move the car:
+
+```
+a_y = (F_y,front·cos δ + F_y,rear) / m − ω·v_x
+ω̇  = (a·F_y,front·cos δ − b·F_y,rear) / Iz     Iz = m·(0.46·L)²
+```
+
+This is what makes it behave like a car. Ask the front for more than it has and it
+runs wide — **understeer**. Spend the rear's grip on throttle and the friction ellipse
+leaves it nothing to corner with, so the back steps out — **oversteer**, which you
+catch with opposite lock or you spin. The plateau at the end of the tyre curve is what
+makes a slide catchable rather than terminal: a fully sideways tyre is still skidding
+against the road, not sliding on ice.
+
+The dynamics run in 8 substeps per frame. Tyre forces are stiff, and a single step at
+30 Hz overshoots once they saturate, spiralling into a spin no input can recover.
+Below 2 m/s a slip angle carries no information, so the model blends into plain
+steering geometry (ω = v·tan δ / L) — which is also why the car cannot pirouette on
+the spot.
 
 ---
 

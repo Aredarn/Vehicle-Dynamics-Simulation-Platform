@@ -100,6 +100,18 @@ export class DriverHudComponent {
     };
   }
 
+  /** Body slip drawn either side of centre, saturating at 30 degrees of slide. */
+  get slipBar(): { left: number; width: number } {
+    const frac = this.clamp(this.telemetry.bodySlipDeg / 30, -1, 1);
+    const half = Math.abs(frac) * 50;
+    return { left: frac < 0 ? 50 - half : 50, width: half };
+  }
+
+  /** 0 = straight, 1 = fully sideways. Drives the slide warning colour. */
+  get slideSeverity(): number {
+    return this.clamp(Math.abs(this.telemetry.bodySlipDeg) / 30, 0, 1);
+  }
+
   get gLimitRadius(): number {
     return this.clamp(this.telemetry.maxLateralAccelG * 22, 10, 34);
   }

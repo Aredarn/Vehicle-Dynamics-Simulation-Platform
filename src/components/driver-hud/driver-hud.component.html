@@ -139,7 +139,22 @@
       <span class="axle__val num">{{ telemetry.frontLoadShare * 100 | number: '1.0-0' }}F</span>
     </div>
 
-    <p class="flag flag--understeer" *ngIf="telemetry.gripLimited">UNDERSTEER — no grip left to turn</p>
+    <div class="slip">
+      <span class="axle__label">SLIP</span>
+      <div class="slip__track">
+        <span class="slip__centre"></span>
+        <span class="slip__fill" [class.is-big]="slideSeverity > 0.6"
+              [style.left.%]="slipBar.left" [style.width.%]="slipBar.width"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.bodySlipDeg | number: '1.0-0' }}&deg;</span>
+    </div>
+
+    <p class="flag flag--oversteer" *ngIf="telemetry.oversteering">
+      OVERSTEER — rear is away, catch it
+    </p>
+    <p class="flag flag--understeer" *ngIf="telemetry.gripLimited && !telemetry.oversteering">
+      UNDERSTEER — no grip left to turn
+    </p>
     <p class="flag flag--surface" *ngIf="!telemetry.onTrack">
       SURFACE {{ telemetry.surfaceGrip * 100 | number: '1.0-0' }}% ·
       {{ telemetry.offTrackGrace - telemetry.offTrackTime | number: '1.1-1' }}s
@@ -150,6 +165,7 @@
   <div class="hud__block hud__figures">
     <div class="fig"><span class="fig__k">Power</span><span class="fig__v num">{{ telemetry.powerKw | number: '1.0-0' }} kW</span></div>
     <div class="fig"><span class="fig__k">Drag</span><span class="fig__v num">{{ telemetry.dragForce | number: '1.0-0' }} N</span></div>
+    <div class="fig"><span class="fig__k">Aero</span><span class="fig__v num">{{ telemetry.downforce | number: '1.0-0' }} N</span></div>
     <div class="fig"><span class="fig__k">Brake</span><span class="fig__v num">{{ telemetry.brakeForce | number: '1.0-0' }} N</span></div>
     <div class="fig"><span class="fig__k">Yaw</span><span class="fig__v num">{{ telemetry.yawRate | number: '1.2-2' }} r/s</span></div>
     <div class="fig"><span class="fig__k">Dist</span><span class="fig__v num">{{ telemetry.distance | number: '1.0-0' }} m</span></div>

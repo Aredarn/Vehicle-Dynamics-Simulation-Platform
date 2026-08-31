@@ -352,6 +352,39 @@
   text-align: right;
 }
 
+.slip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slip__track {
+  position: relative;
+  flex: 1;
+  height: 7px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.slip__centre {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-strong);
+}
+
+.slip__fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--warning);
+
+  &.is-big { background: var(--danger); }
+}
+
 .flag {
   font-size: 9px;
   font-weight: 600;
@@ -359,6 +392,7 @@
   color: var(--warning);
 
   &--understeer { color: var(--danger); }
+  &--oversteer { color: var(--warning); }
 }
 
 /* ----- Derived figures ----- */

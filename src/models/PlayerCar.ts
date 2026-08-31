@@ -43,8 +43,16 @@ export interface PlayerTelemetry {
 
   frontUsage: number;
   rearUsage: number;
-  /** Steering asked for more yaw than the tires could deliver: the car is understeering. */
+  /** The front tires are past their peak slip angle: the car is running wide. */
   gripLimited: boolean;
+  /** The rear tires are past their peak: the back is stepping out. */
+  oversteering: boolean;
+  /** Angle between where the car points and where it is going, in degrees. A slide. */
+  bodySlipDeg: number;
+  frontSlipDeg: number;
+  rearSlipDeg: number;
+  /** Aerodynamic downforce at the current speed (N) — grows with the square of speed. */
+  downforce: number;
 
   frontLoad: number;
   rearLoad: number;
@@ -116,7 +124,7 @@ function slew(current: number, target: number, rate: number, dt: number): number
  * obeyed identical physics and identical track limits.
  */
 export class PlayerCar {
-  state = { x: 0, y: 0, heading: 0, speed: 0, yawRate: 0 };
+  state = { x: 0, y: 0, heading: 0, speed: 0, yawRate: 0, lateralVelocity: 0 };
 
   /** Actual control positions, after rate limiting — what the physics actually receives. */
   controls = { steer: 0, throttle: 0, brake: 0 };
@@ -163,7 +171,7 @@ export class PlayerCar {
     this.trackLength = this.trackPath.length ? this.trackPath[this.trackPath.length - 1].s : 0;
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
-    this.state = { x: start.x, y: start.y, heading: start.heading, speed: 0, yawRate: 0 };
+    this.state = { x: start.x, y: start.y, heading: start.heading, speed: 0, yawRate: 0, lateralVelocity: 0 };
     this.controls = { steer: 0, throttle: 0, brake: 0 };
 
     this.status = 'ready';
@@ -215,7 +223,7 @@ export class PlayerCar {
 
     const distMoved = Math.hypot(this.state.x - prevX, this.state.y - prevY);
     this.lapTime += dt;
-    this.distance += Math.abs(this.state.speed * dt);
+    this.distance += Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0) * dt;
 
     const closest = closestPointOnPathNear(
       { x: this.state.x, y: this.state.y },
@@ -322,10 +330,12 @@ export class PlayerCar {
     const latG = step ? step.lateralAccel / g : 0;
     const totalLoad = step ? step.frontLoad + step.rearLoad : 1;
 
+    const groundSpeed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
+
     return {
-      speedMs: this.state.speed,
-      speedKmh: this.state.speed * 3.6,
-      speedRatio: clamp(this.state.speed / Math.max(this.maxSpeed, 0.1), 0, 1),
+      speedMs: groundSpeed,
+      speedKmh: groundSpeed * 3.6,
+      speedRatio: clamp(groundSpeed / Math.max(this.maxSpeed, 0.1), 0, 1),
       topSpeedKmh: this.topSpeedKmh,
 
       longitudinalG: longG,
@@ -336,6 +346,11 @@ export class PlayerCar {
       frontUsage: step ? step.frontUsage : 0,
       rearUsage: step ? step.rearUsage : 0,
       gripLimited: step ? step.gripLimited : false,
+      oversteering: step ? step.oversteering : false,
+      bodySlipDeg: step ? (step.bodySlipAngle * 180) / Math.PI : 0,
+      frontSlipDeg: step ? (step.frontSlipAngle * 180) / Math.PI : 0,
+      rearSlipDeg: step ? (step.rearSlipAngle * 180) / Math.PI : 0,
+      downforce: step ? step.downforce : 0,
 
       frontLoad: step ? step.frontLoad : 0,
       rearLoad: step ? step.rearLoad : 0,

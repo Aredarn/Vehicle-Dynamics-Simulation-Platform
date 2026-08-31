@@ -27,17 +27,17 @@ export function calculatePerformance(settings: CarSettings): PerformanceMetrics 
   const driveRatio = toNumber(settings.finalDrive) / 3.8;
 
   const effectivePower = powerW * efficiency;
-  const normalForce = mass * g + downforce;
   const dragConst = 0.5 * rho * Cd * A;
-  const rollingRes = 0.015 * normalForce;
-  const tractionLimit = mu * normalForce;
+  // Downforce grows with speed, so load, rolling drag and the traction limit all follow it.
+  const loadAt = (v: number) => mass * g + downforce * Math.pow(v / (200 / 3.6), 2);
 
   let vTop = 0;
   for (let v = 0; v < 120; v += 0.25) {
+    const normalForce = loadAt(v);
     const dragForce = dragConst * v * v;
     const maxPowerForce = v > 1 ? effectivePower / v : effectivePower;
-    const engineForce = Math.min(maxPowerForce * driveRatio, tractionLimit);
-    const netForce = engineForce - dragForce - rollingRes;
+    const engineForce = Math.min(maxPowerForce * driveRatio, mu * normalForce);
+    const netForce = engineForce - dragForce - 0.015 * normalForce;
     if (netForce <= 0) break;
     vTop = v;
   }
@@ -48,10 +48,11 @@ export function calculatePerformance(settings: CarSettings): PerformanceMetrics 
   const dt = 0.05;
 
   while (v < targetSpeed) {
+    const normalForce = loadAt(v);
     const dragForce = dragConst * v * v;
     const maxPowerForce = v > 1 ? effectivePower / v : effectivePower;
-    const driveForce = Math.min(maxPowerForce * driveRatio, tractionLimit);
-    const netForce = driveForce - dragForce - rollingRes;
+    const driveForce = Math.min(maxPowerForce * driveRatio, mu * normalForce);
+    const netForce = driveForce - dragForce - 0.015 * normalForce;
     const accel = netForce > 0 ? netForce / Math.max(mass, 1) : 0;
     v += accel * dt;
     t += dt;
@@ -71,7 +72,10 @@ export function getEffectiveGrip(settings: CarSettings, speed = 0, steeringInput
 export function maxLateralAcceleration(settings: CarSettings, speed = 0, steeringInput = 0): number {
   const g = 9.81;
   const grip = getEffectiveGrip(settings, speed, steeringInput);
-  return grip * (toNumber(settings.mass) * g + toNumber(settings.downforce)) / Math.max(toNumber(settings.mass), 1);
+  // Aero has to be read the same way here as in the physics step, or the optimizer's reference
+  // lap describes a car that does not exist and every speed target is wrong at speed.
+  const load = toNumber(settings.mass) * g + aeroDownforce(settings, speed);
+  return grip * load / Math.max(toNumber(settings.mass), 1);
 }
 
 export function maxLongitudinalForce(settings: CarSettings, speed: number, throttle: number): number {
@@ -154,8 +158,14 @@ export interface VehicleDynamicsState {
   x: number;
   y: number;
   heading: number;
+  /** Forward (body-frame) velocity. Not the same as total speed once the car is sliding. */
   speed: number;
   yawRate: number;
+  /**
+   * Sideways (body-frame) velocity. This is the state that makes a slide possible: with it the
+   * car can point somewhere other than where it is travelling.
+   */
+  lateralVelocity?: number;
 }
 
 export interface VehicleStepResult {
@@ -173,8 +183,17 @@ export interface VehicleStepResult {
   engineForce: number;
   brakeForce: number;
   dragForce: number;
-  /** Steering asked for more yaw than grip allowed, so the car ran wide instead: understeer. */
+  /** The front tires are past their peak: the car is running wide. */
   gripLimited: boolean;
+  /** The rear tires are past their peak: the back is coming round. */
+  oversteering: boolean;
+  /** Angle between where the car points and where it is actually going (rad). A slide. */
+  bodySlipAngle: number;
+  /** Slip angles at each axle (rad) — the inputs the tires actually respond to. */
+  frontSlipAngle: number;
+  rearSlipAngle: number;
+  /** Aerodynamic downforce at this speed (N). */
+  downforce: number;
 }
 
 /**
@@ -203,27 +222,84 @@ export function offTrackGripMultiplier(beyondEdge: number): number {
   return 1 - t * (1 - TRACK_LIMITS.offTrackGripFloor);
 }
 
-const BASE_STEER_RATE = 2.2; // rad/s, max commanded yaw rate at full steering lock and no grip limit
+/** Front-wheel steering angle at full lock (rad). A real rack, not a yaw-rate request. */
+const STEER_LOCK = 0.46;
 const BRAKE_BIAS_FRONT = 0.6;
 const CG_HEIGHT = 0.5; // m, fixed assumption — CarSettings carries no CG field
 
 /**
- * Advances the car by dt, mutating `state` in place. Longitudinal weight transfer shifts load
- * between axles under braking/acceleration — this is what makes trail braking (extra front
- * grip while turning in, at the cost of some of the front tire's braking budget) a real
- * physical trade-off rather than a scripted bonus, and what makes trading off throttle/brake
- * against steering angle matter at all.
+ * Tire lateral-force curve shape (a reduced Pacejka "magic formula").
  *
- * Yaw is integrated kinematically (heading follows a commanded yaw rate, clamped by whatever
- * lateral grip the axles have left after their longitudinal demands) rather than as a free
- * dynamic slip-angle state — a full 2-DOF dynamic bicycle model is notoriously sensitive to
- * tuning (cornering stiffness, yaw inertia, damping) and easily diverges into an unrecoverable
- * spin from a near-straight input once tires saturate; that instability made the GA's reward
- * landscape a cliff instead of a slope. This keeps the physically real part (grip is a shared,
- * load-dependent budget between braking/accelerating and turning) without that failure mode.
- * `gripMultiplier` scales tire friction for both axles — used to model reduced grip when off
- * the track surface (grass/gravel) instead of an arbitrary speed decay.
+ * Force rises steeply with slip angle, peaks around 8 degrees, then falls away. That falling
+ * region is the whole point: past the peak a tire gives *less* grip the harder you ask, which is
+ * what turns a slide into something you have to catch rather than something that self-corrects.
  */
+const TIRE_STIFFNESS = 9.5;
+const TIRE_SHAPE = 1.9;
+/** Slip angle at which a tire peaks, used to report that an axle has let go. */
+const TIRE_PEAK_SLIP = Math.atan(Math.tan(Math.PI / (2 * TIRE_SHAPE)) / TIRE_STIFFNESS);
+
+/**
+ * Grip still available once a tire is fully sliding, as a fraction of its peak.
+ *
+ * The shaped curve alone keeps falling with slip angle and is near zero by 90 degrees, which
+ * makes a spun car frictionless — nothing is left to arrest the rotation, so every slide runs
+ * away to a full spin and opposite lock does nothing. A tire sliding sideways is really just
+ * skidding, and a skidding tire still returns most of its friction opposing the slide. Blending
+ * the peaky curve into that plateau is what makes a slide catchable instead of terminal.
+ */
+const TIRE_SLIDE_GRIP = 0.78;
+const SLIDE_BLEND_START = 0.30; // rad (~17 deg)
+const SLIDE_BLEND_END = 0.70;   // rad (~40 deg)
+
+/**
+ * The dynamics are integrated at this many substeps per call.
+ *
+ * Tire forces are stiff: at 30 Hz a single explicit Euler step overshoots badly once the tires
+ * saturate, and the car spirals into a spin no input can recover — which is how an earlier
+ * attempt at a dynamic model failed. Substepping is what makes this stable.
+ */
+const PHYSICS_SUBSTEPS = 8;
+
+/**
+ * Slip angles are meaningless at a standstill (velocity divided by ~zero), so below
+ * `KINEMATIC_FULL` the car steers geometrically and blends into the full dynamic model by
+ * `DYNAMIC_FULL`. This also removes the standstill pirouette the previous model allowed.
+ */
+const KINEMATIC_FULL = 2.0;  // m/s
+const DYNAMIC_FULL = 6.0;    // m/s
+
+/** Downforce in CarSettings is the figure produced at this speed; aero scales with v^2. */
+const AERO_REFERENCE_SPEED = 200 / 3.6; // m/s
+
+/** Lateral force from one axle at a given slip angle, saturating at mu*Fz. */
+function tireLateralForce(slipAngle: number, mu: number, load: number): number {
+  const shaped = Math.sin(TIRE_SHAPE * Math.atan(TIRE_STIFFNESS * slipAngle));
+  const magnitude = Math.abs(slipAngle);
+  const sliding = clamp(
+    (magnitude - SLIDE_BLEND_START) / (SLIDE_BLEND_END - SLIDE_BLEND_START),
+    0,
+    1
+  );
+  const skid = Math.sign(slipAngle) * TIRE_SLIDE_GRIP;
+  return -mu * load * (shaped * (1 - sliding) + skid * sliding);
+}
+
+/**
+ * Aerodynamic downforce at this speed.
+ *
+ * The `downforce` setting was previously added as a constant load at every speed, so a car had
+ * exactly the same cornering grip at 30 km/h as at 300 and aero was effectively decorative.
+ * Real downforce grows with the square of speed, which is why a fast car corners far harder in
+ * a quick corner than a slow one. The setting is read as the downforce produced at 200 km/h.
+ */
+export function aeroDownforce(settings: CarSettings, speed: number): number {
+  const rated = toNumber(settings.downforce);
+  if (rated <= 0) return 0;
+  const ratio = speed / AERO_REFERENCE_SPEED;
+  return rated * ratio * ratio;
+}
+
 export function stepVehicleDynamics(
   state: VehicleDynamicsState,
   settings: CarSettings,
@@ -236,107 +312,163 @@ export function stepVehicleDynamics(
   const rho = 1.225;
   const mass = Math.max(200, toNumber(settings.mass));
   const wheelbase = Math.max(1.2, toNumber(settings.wheelbase, 2.5));
-  const downforce = toNumber(settings.downforce);
-  const staticLoad = mass * g + downforce;
-  const loadFloor = staticLoad * 0.05;
+  // CG assumed centred, so each axle sits half a wheelbase away.
+  const lengthFront = wheelbase / 2;
+  const lengthRear = wheelbase / 2;
+  // Yaw inertia from a radius of gyration of ~0.46 x wheelbase, the usual passenger-car figure.
+  const yawInertia = mass * Math.pow(0.46 * wheelbase, 2);
 
   const grip = Math.max(0.05, toNumber(settings.tireGrip)) * clamp(gripMultiplier, 0.05, 1);
-
-  const vx = Math.max(state.speed, 0);
-
   const powerW = toNumber(settings.enginePower) * 1000;
   const efficiency = 0.9;
   const driveRatio = toNumber(settings.finalDrive) / 3.8;
   const effectivePower = powerW * efficiency;
   const dragConst = 0.5 * rho * toNumber(settings.dragCoeff) * toNumber(settings.frontalArea);
-  const dragForce = dragConst * vx * vx;
-  const rollingRes = 0.015 * staticLoad;
-  const wholeCarLimit = grip * staticLoad;
-  const maxPowerForce = vx > 1 ? effectivePower / vx : effectivePower;
+  const steerAngle = clamp(controls.steer, -1, 1) * STEER_LOCK;
 
-  // Pass 1: rough accel estimate against the whole car's traction budget, just to size the
-  // weight transfer below. Using this (rather than static 50/50 load) for the *actual* axle
-  // force budgets in pass 2 would let the drive axle's own request inflate its own budget.
-  const prelimEngineForce = controls.throttle > 0
-    ? Math.min(maxPowerForce * driveRatio, wholeCarLimit) * controls.throttle
-    : 0;
-  const prelimBrakeForce = controls.brake > 0 ? Math.min(controls.brake * wholeCarLimit, wholeCarLimit) : 0;
-  const prelimAx = (prelimEngineForce - dragForce - rollingRes - prelimBrakeForce) / mass;
+  let vx = Math.max(state.speed, 0);
+  let vy = state.lateralVelocity ?? 0;
+  let yawRate = state.yawRate;
 
-  // Braking (ax < 0) transfers load to the front axle; accelerating loads the rear.
-  const transfer = mass * prelimAx * CG_HEIGHT / wheelbase;
-  const frontLoad = clamp(staticLoad / 2 - transfer, loadFloor, staticLoad);
-  const rearLoad = clamp(staticLoad / 2 + transfer, loadFloor, staticLoad);
+  const sub = dt / PHYSICS_SUBSTEPS;
 
-  // Pass 2: clamp drive/brake force to what each axle's own (transfer-adjusted) grip budget
-  // allows — this is what lets braking-induced front load actually buy extra front braking
-  // capacity, and rear load under acceleration buy extra traction, instead of the whole-car
-  // budget being consumed entirely by one axle and starving its lateral grip.
-  const frontBrakeLimit = grip * frontLoad;
-  const rearBrakeLimit = grip * rearLoad;
+  // Reported values come from the final substep, which is the state the caller ends up with.
+  let frontLoad = 0, rearLoad = 0, engineForce = 0, brakeForce = 0, dragForce = 0;
+  let frontUsage = 0, rearUsage = 0, latAcc = 0, maxLatAcc = 0, longAccel = 0;
+  let frontSlip = 0, rearSlip = 0, downforce = 0;
 
-  const engineForce = controls.throttle > 0
-    ? Math.min(maxPowerForce * driveRatio, rearBrakeLimit) * controls.throttle
-    : 0;
-  const frontBrakeForce = controls.brake > 0
-    ? Math.min(controls.brake * BRAKE_BIAS_FRONT * wholeCarLimit, frontBrakeLimit)
-    : 0;
-  const rearBrakeForce = controls.brake > 0
-    ? Math.min(controls.brake * (1 - BRAKE_BIAS_FRONT) * wholeCarLimit, rearBrakeLimit)
-    : 0;
-  const brakeForce = frontBrakeForce + rearBrakeForce;
+  for (let i = 0; i < PHYSICS_SUBSTEPS; i++) {
+    const speed = Math.hypot(vx, vy);
+    downforce = aeroDownforce(settings, speed);
+    const staticLoad = mass * g + downforce;
+    const loadFloor = staticLoad * 0.05;
 
-  const netLongForce = engineForce - dragForce - rollingRes - brakeForce;
-  const ax = netLongForce / mass;
+    dragForce = dragConst * speed * speed;
+    const rollingRes = 0.015 * staticLoad;
+    // Resistances oppose the direction of travel rather than always pointing backwards along
+    // the body, which matters the moment the car is no longer going where it is pointing.
+    const dragX = -dragConst * speed * vx;
+    const dragY = -dragConst * speed * vy;
+    const rollX = -Math.sign(vx) * rollingRes * Math.min(1, Math.abs(vx));
+    const wholeCarLimit = grip * staticLoad;
+    const maxPowerForce = vx > 1 ? effectivePower / vx : effectivePower;
 
-  const frontLongForce = frontBrakeForce;
-  const rearLongForce = engineForce + rearBrakeForce;
+    // Pass 1: a rough longitudinal acceleration, only to size the weight transfer. Using the
+    // result of pass 2 here would let an axle's own demand inflate its own load budget.
+    const prelimEngine = controls.throttle > 0
+      ? Math.min(maxPowerForce * driveRatio, wholeCarLimit) * controls.throttle
+      : 0;
+    const prelimBrake = controls.brake > 0 ? Math.min(controls.brake * wholeCarLimit, wholeCarLimit) : 0;
+    const prelimAx = (prelimEngine - dragForce - rollingRes - prelimBrake) / mass;
 
-  const frontLongUsage = frontLongForce / Math.max(frontBrakeLimit, 1);
-  const rearLongUsage = rearLongForce / Math.max(rearBrakeLimit, 1);
+    // Braking pitches load onto the front axle, accelerating onto the rear.
+    const transfer = mass * prelimAx * CG_HEIGHT / wheelbase;
+    frontLoad = clamp(staticLoad / 2 - transfer, loadFloor, staticLoad);
+    rearLoad = clamp(staticLoad / 2 + transfer, loadFloor, staticLoad);
 
-  const frontLatCapacity = Math.sqrt(Math.max(0, 1 - frontLongUsage * frontLongUsage)) * grip * frontLoad;
-  const rearLatCapacity = Math.sqrt(Math.max(0, 1 - rearLongUsage * rearLongUsage)) * grip * rearLoad;
+    const frontGripLimit = grip * frontLoad;
+    const rearGripLimit = grip * rearLoad;
 
-  // Available lateral grip (both axles, net of whatever braking/traction is already using)
-  // bounds how fast the car can actually rotate at this speed — this is the friction-circle
-  // coupling: the same weight-transfer-boosted front load that helps trail braking only helps
-  // if there's grip left over after braking to spend on turning.
-  const maxLatAcc = (frontLatCapacity + rearLatCapacity) / mass;
-  const desiredYawRate = clamp(controls.steer, -1, 1) * BASE_STEER_RATE;
-  const maxYawRateFromGrip = vx > 0.5 ? maxLatAcc / vx : BASE_STEER_RATE;
-  const yawRate = clamp(desiredYawRate, -maxYawRateFromGrip, maxYawRateFromGrip);
+    engineForce = controls.throttle > 0
+      ? Math.min(maxPowerForce * driveRatio, rearGripLimit) * controls.throttle
+      : 0;
+    const frontBrake = controls.brake > 0
+      ? Math.min(controls.brake * BRAKE_BIAS_FRONT * wholeCarLimit, frontGripLimit)
+      : 0;
+    const rearBrake = controls.brake > 0
+      ? Math.min(controls.brake * (1 - BRAKE_BIAS_FRONT) * wholeCarLimit, rearGripLimit)
+      : 0;
+    brakeForce = frontBrake + rearBrake;
 
-  const latAccUsed = Math.abs(yawRate) * vx;
-  const gripUsedRatio = maxLatAcc > 0 ? clamp(latAccUsed / maxLatAcc, 0, 1) : 0;
-  const longGripScale = Math.sqrt(Math.max(0, 1 - gripUsedRatio * gripUsedRatio));
+    // Longitudinal force each axle puts through its contact patch. Brakes resist whichever way
+    // the car is actually rolling; they cannot drive it backwards.
+    const rollDirection = Math.sign(vx) || 1;
+    const brakeFade = Math.min(1, Math.abs(vx));
+    const frontLongForce = -rollDirection * frontBrake * brakeFade;
+    const rearLongForce = engineForce - rollDirection * rearBrake * brakeFade;
 
-  const nextVx = clamp(vx + ax * longGripScale * dt, 0, maxSpeed);
-  const nextHeading = state.heading + yawRate * dt;
+    // Slip angles: the difference between where each axle points and where it is travelling.
+    // The denominator is floored so the angle stays finite as the car comes to a stop.
+    const vxSafe = Math.max(vx, 0.8);
+    const alphaFront = Math.atan2(vy + lengthFront * yawRate, vxSafe) - steerAngle;
+    const alphaRear = Math.atan2(vy - lengthRear * yawRate, vxSafe);
 
-  state.x += nextVx * Math.cos(nextHeading) * dt;
-  state.y += nextVx * Math.sin(nextHeading) * dt;
-  state.heading = nextHeading;
-  state.speed = nextVx;
+    // Friction ellipse: grip already spent going forwards or stopping cannot also be used to turn.
+    const frontLongRatio = clamp(Math.abs(frontLongForce) / Math.max(frontGripLimit, 1), 0, 1);
+    const rearLongRatio = clamp(Math.abs(rearLongForce) / Math.max(rearGripLimit, 1), 0, 1);
+    const muFront = grip * Math.sqrt(Math.max(0, 1 - frontLongRatio * frontLongRatio));
+    const muRear = grip * Math.sqrt(Math.max(0, 1 - rearLongRatio * rearLongRatio));
+
+    const frontLatForce = tireLateralForce(alphaFront, muFront, frontLoad);
+    const rearLatForce = tireLateralForce(alphaRear, muRear, rearLoad);
+
+    const frontLatComponent = frontLatForce * Math.cos(steerAngle);
+    const netLongForce = rearLongForce + frontLongForce
+      - frontLatForce * Math.sin(steerAngle)
+      + dragX + rollX;
+
+    // Body-frame accelerations, including the centripetal cross terms.
+    const ax = netLongForce / mass + yawRate * vy;
+    const ay = (frontLatComponent + rearLatForce + dragY) / mass - yawRate * vx;
+    const yawAcc = (lengthFront * frontLatComponent - lengthRear * rearLatForce) / yawInertia;
+
+    // vx is NOT floored at zero: a car rotated past sideways is genuinely travelling backwards
+    // along its own axis, and pinning it to zero deletes that momentum — which turned every
+    // slide into a car that simply stopped and kept rotating, unable to be caught.
+    vx += ax * sub;
+    vy += ay * sub;
+    yawRate += yawAcc * sub;
+
+    // The speed ceiling applies to how fast the car is actually going, not to one component.
+    const newSpeed = Math.hypot(vx, vy);
+    if (newSpeed > maxSpeed) {
+      vx *= maxSpeed / newSpeed;
+      vy *= maxSpeed / newSpeed;
+    }
+
+    // Below walking pace a slip angle carries no information, so hand over to plain steering
+    // geometry. This is also what stops a stationary car from spinning on the spot.
+    const blend = clamp((Math.hypot(vx, vy) - KINEMATIC_FULL) / (DYNAMIC_FULL - KINEMATIC_FULL), 0, 1);
+    if (blend < 1) {
+      const kinematicYaw = (vx * Math.tan(steerAngle)) / wheelbase;
+      yawRate = blend * yawRate + (1 - blend) * kinematicYaw;
+      vy *= blend;
+    }
+
+    frontSlip = alphaFront;
+    rearSlip = alphaRear;
+    latAcc = Math.abs(frontLatComponent + rearLatForce) / mass;
+    maxLatAcc = (muFront * frontLoad + muRear * rearLoad) / mass;
+    longAccel = ax;
+    frontUsage = Math.hypot(frontLongForce, frontLatForce) / Math.max(frontGripLimit, 1);
+    rearUsage = Math.hypot(rearLongForce, rearLatForce) / Math.max(rearGripLimit, 1);
+  }
+
+  const heading = state.heading + yawRate * dt;
+  // Velocity is in body coordinates, so a sliding car partly travels sideways.
+  state.x += (vx * Math.cos(heading) - vy * Math.sin(heading)) * dt;
+  state.y += (vx * Math.sin(heading) + vy * Math.cos(heading)) * dt;
+  state.heading = heading;
+  state.speed = vx;
+  state.lateralVelocity = vy;
   state.yawRate = yawRate;
-
-  // Usage relative to each axle's *original* (un-reduced) circular grip budget: lateral usage
-  // is measured against the capacity already left over after longitudinal use, so combining
-  // the two via a plain hypot would double-count and could exceed 1 even within the limit.
-  const frontUsage = Math.sqrt(frontLongUsage * frontLongUsage + gripUsedRatio * gripUsedRatio * (1 - frontLongUsage * frontLongUsage));
-  const rearUsage = Math.sqrt(rearLongUsage * rearLongUsage + gripUsedRatio * gripUsedRatio * (1 - rearLongUsage * rearLongUsage));
 
   return {
     frontUsage,
     rearUsage,
-    longitudinalAccel: ax * longGripScale,
-    lateralAccel: latAccUsed,
+    longitudinalAccel: longAccel,
+    lateralAccel: latAcc,
     maxLateralAccel: maxLatAcc,
     frontLoad,
     rearLoad,
     engineForce,
     brakeForce,
     dragForce,
-    gripLimited: Math.abs(desiredYawRate) > maxYawRateFromGrip + 1e-9,
+    gripLimited: Math.abs(frontSlip) > TIRE_PEAK_SLIP,
+    oversteering: Math.abs(rearSlip) > TIRE_PEAK_SLIP,
+    bodySlipAngle: Math.atan2(vy, Math.max(vx, 0.1)),
+    frontSlipAngle: frontSlip,
+    rearSlipAngle: rearSlip,
+    downforce,
   };
 }
