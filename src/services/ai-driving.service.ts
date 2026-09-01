@@ -130,6 +130,9 @@ export class AIDrivingService {
     objective: 'grip',
   });
 
+  /** What the current run is being ranked for. Set for the duration of `train()`. */
+  private rankingObjective: TrainingObjective = 'grip';
+
   private populationSubject = new BehaviorSubject<CarAgent[]>([]);
   stats$: Observable<AIGenerationStats> = this.statsSubject.asObservable();
   agents$: Observable<CarAgent[]> = this.populationSubject.asObservable();
@@ -173,6 +176,7 @@ export class AIDrivingService {
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
     const objective: TrainingObjective = config.objective ?? 'grip';
+    this.rankingObjective = objective;
 
     // Freeze the layout for the whole run. The editor rebuilds its model on every change, but
     // snapshotting here keeps a run immune to edits regardless: an edit mid-run would otherwise
@@ -239,6 +243,13 @@ export class AIDrivingService {
 
       this.populationSubject.next(agents);
       await this.simulateAgents(agents, simulationSteps, dt);
+
+      // Stopping cuts the simulation short part-way through the generation, so every agent is
+      // frozen mid-lap: none have finished, most are still "alive", and their fitness reflects
+      // however far they happened to get. Recording that as a generation made a stopped run
+      // look like it had collapsed — the exported history ended on a truncated result far worse
+      // than anything the run actually produced.
+      if (this.stopRequested) break;
 
       population = agents.map(agent => this.cloneGenome(agent.genome));
       population.sort((a, b) => this.compareGenomes(a, b));
@@ -402,8 +413,25 @@ export class AIDrivingService {
    * reward shaping could express a preference for a better racing line. Progress still leads
    * in practice because it is the dominant term inside fitness.
    */
+  /**
+   * Ranking used for the champion, the hall of fame and elite selection alike.
+   *
+   * Completing the lap is an absolute tie-break for GRIP: finishing is the objective, and the
+   * reward already scores a finisher above a non-finisher, so the two agree.
+   *
+   * For DRIFT they disagree, and letting completion win overrode the entire objective. A car
+   * that completed a lap without ever going sideways outranked one that drifted superbly and
+   * ran out of road — so the moment any agent finished, it became champion, displaced the far
+   * better drifter from the hall of fame, and could never be displaced back, because the
+   * drifter does not finish. The population was then bred toward completing laps rather than
+   * drifting, and the reported best fitness fell generation after generation. Drift runs are
+   * therefore ranked on fitness alone, which already accounts for finishing: the completion
+   * bonus is paid in proportion to how much of the lap was actually spent sideways.
+   */
   private compareGenomes(a: AgentGenome, b: AgentGenome): number {
-    if (a.completedLap !== b.completedLap) return a.completedLap ? -1 : 1;
+    if (this.rankingObjective !== 'drift' && a.completedLap !== b.completedLap) {
+      return a.completedLap ? -1 : 1;
+    }
     return b.fitness - a.fitness;
   }
 

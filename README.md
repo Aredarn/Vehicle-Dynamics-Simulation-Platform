@@ -367,6 +367,15 @@ search has to stay local to work.
 The best genome ever seen is always carried forward, so the champion can never be
 lost.
 
+**Ranking follows the objective.** For Grip, completing the lap is an absolute tie-break —
+finishing *is* the goal, and the reward already scores a finisher above a non-finisher, so the
+two agree. For Drift they disagree, and letting completion win overrode the objective entirely:
+a car that completed a lap without ever going sideways outranked one that drifted superbly and
+ran out of road. The first agent to finish became champion, displaced the far better drifter
+from the hall of fame, and could never be displaced back — because the drifter does not finish.
+The population was then bred toward completing laps rather than drifting. Drift runs are
+therefore ranked on fitness alone, which already accounts for finishing.
+
 ---
 
 ### 6. Track Limits
