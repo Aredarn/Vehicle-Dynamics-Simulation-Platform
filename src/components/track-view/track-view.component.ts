@@ -10,6 +10,7 @@ import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
 import { PlayerCar, DriverInput, PlayerTelemetry } from '../../models/PlayerCar';
+import { TrainingObjective } from '../../utils/drift-scoring';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
 import {
@@ -80,12 +81,28 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     averageFitness: 0,
     active: false,
     carModel: '',
+    bestDriftScore: 0,
+    objective: 'grip',
   };
   aiConfig = {
     populationSize: 25,
     generations: 20,
     mutationRate: 0.2,
   };
+
+  /** What the AI is being asked to learn. Grip is the existing behaviour, unchanged. */
+  objective: TrainingObjective = 'grip';
+
+  readonly objectives: Array<{ value: TrainingObjective; label: string; blurb: string }> = [
+    { value: 'grip', label: 'Grip', blurb: 'Fastest lap: the racing line, trail braking, and every tenth of grip spent going forward.' },
+    { value: 'drift', label: 'Drift', blurb: 'Angle held at speed: points for a big controlled slide, nothing for a spin or a straight car.' },
+  ];
+
+  /**
+   * The drivetrain the car had before drift mode forced RWD + LSD, so leaving drift puts the
+   * car back the way it was rather than silently keeping the drift setup.
+   */
+  private preDriftDrivetrain: { drivetrain: CarSettings['drivetrain']; differential: CarSettings['differential'] } | null = null;
 
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
 
@@ -218,6 +235,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   followCam = true;
   showPlayerLine = true;
   playerBestLap = 0;
+  /** Best drift score the driver has banked on this track. */
+  playerBestDrift = 0;
   lastLap: LapRecord | null = null;
   lapHistory: LapRecord[] = [];
   /** The line from the driver's best lap so far, kept to compare routes against the AI's. */
@@ -242,6 +261,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.car = new Car(this.settingsService.getSettings());
     this.carColor = this.settingsService.getActivePresetColor();
     this.playerCar = new PlayerCar(this.settingsService.getSettings());
+    this.playerCar.objective = this.objective;
 
     // The element has no layout yet during ngAfterViewInit, so observe it instead of
     // measuring once — this also covers the sidebar and telemetry drawer resizing it.
@@ -1711,7 +1731,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const result = await this.aiDrivingService.train(
       this.settingsService.getSettings(),
       this.track,
-      { ...this.aiConfig, seedWeights: this.seedModel?.weights ?? null },
+      { ...this.aiConfig, seedWeights: this.seedModel?.weights ?? null, objective: this.objective },
       this.currentTrackLabel
     );
     if (result.bestAgents.length) {
@@ -1721,6 +1741,41 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       this.useOptimizedLine = false;
     }
     this.requestRedraw();
+  }
+
+  /**
+   * Switches what the AI is being trained for.
+   *
+   * Drift is only meaningful on a rear-driven car with a diff that will actually light up both
+   * wheels, so selecting it forces RWD + LSD and locks the pickers. The previous drivetrain is
+   * restored on the way back to grip, so the choice is borrowed rather than overwritten.
+   */
+  setObjective(objective: TrainingObjective) {
+    if (this.objective === objective) return;
+    this.objective = objective;
+
+    const current = this.settingsService.getSettings();
+    if (objective === 'drift') {
+      if (!this.preDriftDrivetrain) {
+        this.preDriftDrivetrain = { drivetrain: current.drivetrain, differential: current.differential };
+      }
+      this.settingsService.updateSettings({ drivetrain: 'rwd', differential: 'lsd' });
+    } else if (this.preDriftDrivetrain) {
+      this.settingsService.updateSettings({ ...this.preDriftDrivetrain });
+      this.preDriftDrivetrain = null;
+    }
+
+    if (this.playerCar) this.playerCar.objective = objective;
+    if (this.driveMode) this.resetRun();
+    this.requestRedraw();
+  }
+
+  get objectiveBlurb(): string {
+    return this.objectives.find(o => o.value === this.objective)?.blurb ?? '';
+  }
+
+  get isDrift(): boolean {
+    return this.objective === 'drift';
   }
 
   stopAITraining() {
@@ -1914,8 +1969,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.playerTelemetry = car.telemetry();
 
+    const telemetry = car.telemetry();
+    if (this.objective === 'drift') {
+      this.playerBestDrift = Math.max(this.playerBestDrift, telemetry.driftScore);
+    }
+
     if (car.status === 'finished') {
-      const record: LapRecord = { time: car.lapTime, valid: true };
+      const record: LapRecord = { time: car.lapTime, valid: true, driftScore: telemetry.driftScore };
       this.lastLap = record;
       this.lapHistory = [record, ...this.lapHistory].slice(0, 12);
       if (!this.playerBestLap || car.lapTime < this.playerBestLap) {
@@ -1972,6 +2032,15 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     if (this.followCam && this.playerCar) {
       this.centerCameraOn(this.playerCar.state.x, this.playerCar.state.y);
     }
+    this.requestRedraw();
+  }
+
+  get steeringAid(): boolean {
+    return this.playerCar?.steeringAid ?? true;
+  }
+
+  toggleSteeringAid() {
+    if (this.playerCar) this.playerCar.steeringAid = !this.playerCar.steeringAid;
     this.requestRedraw();
   }
 

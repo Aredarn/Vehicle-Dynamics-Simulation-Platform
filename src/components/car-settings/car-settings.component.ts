@@ -1,5 +1,5 @@
 import { CommonModule, DecimalPipe } from '@angular/common';
-import { Component, OnDestroy } from '@angular/core';
+import { Component, Input, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { CarSettings, CarSettingsService, Drivetrain, Differential } from '../../services/car-settings.service';
@@ -28,6 +28,9 @@ interface SettingField {
   styleUrl: './car-settings.component.scss'
 })
 export class CarSettingsComponent implements OnDestroy {
+  /** Drift mode fixes the drivetrain, so the pickers are shown but not editable. */
+  @Input() locked = false;
+
   settings!: CarSettings;
   presets = this.settingsService.presets;
   performance = { acceleration: 0, topSpeed: 0 };

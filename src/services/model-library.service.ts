@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { TrainingObjective } from '../utils/drift-scoring';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { AI_INPUT_COUNT, AI_HIDDEN_SIZE } from '../models/CarAgent';
@@ -22,6 +23,10 @@ export interface SavedCarModel {
   bestFitness: number;
   bestProgress: number;
   createdAt: number;
+  /** What this model was trained for. Older saved models predate the choice and are grip. */
+  objective: TrainingObjective;
+  /** Best drift score reached, for models trained on the drift objective. */
+  bestDriftScore: number;
 }
 
 const STORAGE_KEY = 'vdsp.models';
@@ -108,6 +113,8 @@ export class ModelLibraryService {
       bestLapTime: Number(obj['bestLapTime']) || 0,
       bestFitness: Number(obj['bestFitness']) || 0,
       bestProgress: Number(obj['bestProgress']) || 0,
+      objective: obj['objective'] === 'drift' ? 'drift' : 'grip',
+      bestDriftScore: Number(obj['bestDriftScore']) || 0,
       createdAt: Date.now(),
     };
 

@@ -276,6 +276,39 @@ Two deliberate choices worth knowing:
 
 ---
 
+### 4b. Two Things To Learn — Grip or Drift
+
+The reward above is the **Grip** objective: fastest lap. **Drift** is a separate objective with
+its own scoring, chosen before training starts.
+
+The grip reward cannot be reused for drift, and not by a small margin — it penalises yaw beyond
+what the corner's curvature implies, and penalises carrying more speed than the corner supports.
+Those two terms describe a drift almost exactly, so a drift agent trained on the grip reward
+would be punished precisely for succeeding.
+
+A drift run is scored on angle held at speed:
+
+```
+quality = 0                            below 15°            (not drifting)
+        = ramps 0 → 1  between 15° and 45°                  (committed slide)
+        = falls 1 → 0  between 45° and 70°                  (spinning, not drifting)
+
+points += quality · speed · multiplier · dt      on track only
+multiplier = 1 → 2 as a slide is held, reset if it drops out for 0.35 s
+```
+
+The upper falloff is what stops the optimizer discovering that a permanent spin scores highest;
+the on-track requirement stops it scoring by spinning in the run-off. Everything about *driving
+the course* is retained — progress round the lap, facing forward, and identical track limits —
+so a drift lap and a grip lap on the same layout are held to the same standard.
+
+Fitness is progress plus drift points, with a flat completion bonus rather than a lap-time one:
+a drift lap is not judged on how quickly it was finished.
+
+Selecting Drift locks the car to **RWD + LSD**; your previous drivetrain is restored when you
+switch back. Saved models record which objective they were trained for, so a drift model is
+never silently compared against a grip one.
+
 ### 5. Evolution
 
 Each generation of population `P` is rebuilt as:

@@ -26,7 +26,10 @@
 </section>
 
 <section class="section">
-  <h3 class="section__title">Drivetrain</h3>
+  <h3 class="section__title">
+    <span>Drivetrain</span>
+    <span class="section__meta" *ngIf="locked">locked by Drift</span>
+  </h3>
 
   <div class="segmented" role="group" aria-label="Drivetrain layout">
     <button
@@ -35,6 +38,7 @@
       class="segmented__btn"
       [class.is-active]="settings.drivetrain === option.value"
       [attr.aria-pressed]="settings.drivetrain === option.value"
+      [disabled]="locked"
       (click)="updateSetting('drivetrain', option.value)"
     >{{ option.label }}</button>
   </div>
@@ -49,6 +53,7 @@
       class="segmented__btn"
       [class.is-active]="settings.differential === option.value"
       [attr.aria-pressed]="settings.differential === option.value"
+      [disabled]="locked"
       (click)="updateSetting('differential', option.value)"
     >{{ option.label }} diff</button>
   </div>

@@ -41,6 +41,27 @@
     </div>
   </div>
 
+  <!-- Drift score, in place of the lap-time chase when driving for angle -->
+  <div class="hud__block hud__drift" *ngIf="drift">
+    <span class="hud__title">Drift</span>
+    <span class="drift__score num">{{ telemetry.driftScore | number: '1.0-0' }}</span>
+    <div class="drift__meter">
+      <span class="drift__fill" [style.width.%]="driftQuality * 100" [class.is-live]="telemetry.driftActive"></span>
+    </div>
+    <div class="drift__row">
+      <span>{{ telemetry.bodySlipDeg | number: '1.0-0' }}&deg;</span>
+      <span class="drift__state">{{ driftAngleLabel }}</span>
+    </div>
+    <div class="drift__row">
+      <span class="num">&times;{{ telemetry.driftMultiplier | number: '1.1-1' }}</span>
+      <span>{{ telemetry.driftStreak | number: '1.1-1' }}s held</span>
+    </div>
+    <div class="drift__row" *ngIf="bestDrift || aiBestDrift">
+      <span>best {{ bestDrift | number: '1.0-0' }}</span>
+      <span *ngIf="aiBestDrift">AI {{ aiBestDrift | number: '1.0-0' }}</span>
+    </div>
+  </div>
+
   <!-- Lap timing -->
   <div class="hud__block hud__timing">
     <div class="lap lap--current">

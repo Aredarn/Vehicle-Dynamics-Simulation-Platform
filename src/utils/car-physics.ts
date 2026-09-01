@@ -250,7 +250,7 @@ export function offTrackGripMultiplier(beyondEdge: number): number {
 }
 
 /** Front-wheel steering angle at full lock (rad). A real rack, not a yaw-rate request. */
-const STEER_LOCK = 0.46;
+export const STEER_LOCK = 0.46;
 const BRAKE_BIAS_FRONT = 0.6;
 const CG_HEIGHT = 0.5; // m, fixed assumption — CarSettings carries no CG field
 
@@ -364,6 +364,25 @@ function tireLateralForce(slipAngle: number, mu: number, load: number): number {
   );
   const skid = Math.sign(slipAngle) * TIRE_SLIDE_GRIP;
   return -mu * load * (shaped * (1 - sliding) + skid * sliding);
+}
+
+/**
+ * The largest steering angle still worth asking for at this speed.
+ *
+ * Past its peak slip angle a tire returns *less* force, so winding on more lock at speed turns
+ * the car less, not more. A driver with a wheel never applies full lock at 140 km/h; they apply
+ * the few degrees the front tire can still use. This returns that angle — roughly the tire's
+ * peak slip plus the geometric steer the corner itself needs.
+ *
+ * It exists for input devices that only offer "pressed" or "not pressed". It caps what a key
+ * press *asks for*; it adds no grip and changes no physics, and the AI, which commands a
+ * continuous steering value, never goes near it.
+ */
+export function usefulSteerAngle(settings: CarSettings, speed: number): number {
+  const wheelbase = Math.max(1.2, toNumber(settings.wheelbase, 2.5));
+  const lateralLimit = Math.max(1, maxLateralAcceleration(settings, speed));
+  const v = Math.max(speed, 1);
+  return TIRE_PEAK_SLIP + (wheelbase * lateralLimit) / (v * v);
 }
 
 /**

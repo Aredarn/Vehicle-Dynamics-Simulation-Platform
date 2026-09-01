@@ -1,11 +1,19 @@
 import { CommonModule } from '@angular/common';
 import { Component, Input } from '@angular/core';
 import { PlayerTelemetry } from '../../models/PlayerCar';
+import {
+  driftAngleQuality,
+  DRIFT_MIN_ANGLE_DEG,
+  DRIFT_IDEAL_ANGLE_DEG,
+  DRIFT_MAX_ANGLE_DEG,
+} from '../../utils/drift-scoring';
 
 /** One completed or abandoned attempt, kept so the driver can see whether they are improving. */
 export interface LapRecord {
   time: number;
   valid: boolean;
+  /** Points banked on this run when driving for the drift objective. */
+  driftScore?: number;
   /** Why the run ended, when it wasn't a completed lap. */
   note?: string;
 }
@@ -32,6 +40,11 @@ export class DriverHudComponent {
   @Input() referenceLap = 0;
   @Input() bestLap = 0;
   @Input() lastLap: LapRecord | null = null;
+  /** Drift mode swaps the lap-time focus for a score readout. */
+  @Input() drift = false;
+  /** Best drift score the AI has reached on this track, 0 when it hasn't trained for it. */
+  @Input() aiBestDrift = 0;
+  @Input() bestDrift = 0;
 
   /** Speedo sweep: 225° of arc, starting bottom-left. */
   private readonly ARC_START = 135;
@@ -105,6 +118,19 @@ export class DriverHudComponent {
     const frac = this.clamp(this.telemetry.bodySlipDeg / 30, -1, 1);
     const half = Math.abs(frac) * 50;
     return { left: frac < 0 ? 50 - half : 50, width: half };
+  }
+
+  /** How close the current angle is to the ideal drift angle, 0..1 — the scoring curve itself. */
+  get driftQuality(): number {
+    return driftAngleQuality(this.telemetry.bodySlipDeg);
+  }
+
+  get driftAngleLabel(): string {
+    const a = Math.abs(this.telemetry.bodySlipDeg);
+    if (a < DRIFT_MIN_ANGLE_DEG) return 'too straight';
+    if (a >= DRIFT_MAX_ANGLE_DEG) return 'spinning';
+    if (a > DRIFT_IDEAL_ANGLE_DEG) return 'past ideal';
+    return 'scoring';
   }
 
   /** 0 = straight, 1 = fully sideways. Drives the slide warning colour. */

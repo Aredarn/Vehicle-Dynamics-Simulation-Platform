@@ -17,6 +17,12 @@ import {
   offTrackGripMultiplier,
 } from '../utils/car-physics';
 import { runPolicy } from '../utils/neural-policy';
+import {
+  TrainingObjective,
+  DriftScoreState,
+  createDriftScoreState,
+  accumulateDrift,
+} from '../utils/drift-scoring';
 
 export const AI_INPUT_COUNT = 14;
 export const AI_HIDDEN_SIZE = 12;
@@ -33,6 +39,8 @@ export interface AgentGenome {
   maxProgress: number;
   progressRatio: number;
   completedLap: boolean;
+  /** Total drift points. Zero for grip runs, which are ranked on lap time instead. */
+  driftScore: number;
 }
 
 export class CarAgent {
@@ -78,7 +86,14 @@ export class CarAgent {
   private projectionIndex = 0;
   private lastProjection: ReturnType<typeof closestPointOnPathNear> | null = null;
 
-  constructor(public genome: AgentGenome, private settings: CarSettings) {
+  /** What this agent is being scored for. Grip is the default and is unchanged by drift mode. */
+  private drift: DriftScoreState = createDriftScoreState();
+
+  constructor(
+    public genome: AgentGenome,
+    private settings: CarSettings,
+    public objective: TrainingObjective = 'grip'
+  ) {
     this.driving = getDrivingCharacteristics(settings);
     const perf = calculatePerformance(settings);
     this.maxSpeed = Math.max(8, perf.topSpeed / 3.6);
@@ -109,6 +124,7 @@ export class CarAgent {
     this.qualitySamples = 0;
     this.projectionIndex = 0;
     this.lastProjection = null;
+    this.drift = createDriftScoreState();
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
     this.state = {
@@ -131,6 +147,7 @@ export class CarAgent {
     this.genome.maxProgress = 0;
     this.genome.progressRatio = 0;
     this.genome.completedLap = false;
+    this.genome.driftScore = 0;
   }
 
   update(dt: number) {
@@ -218,6 +235,12 @@ export class CarAgent {
       this.offTrackTime += dt;
     } else {
       this.offTrackTime = Math.max(0, this.offTrackTime - dt * 2);
+    }
+
+    if (this.objective === 'drift') {
+      const slipDeg = (dynResult.bodySlipAngle * 180) / Math.PI;
+      const groundSpeed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
+      accumulateDrift(this.drift, slipDeg, groundSpeed, onTrack, dt);
     }
 
     const headingError = normalizeAngle(this.state.heading - closest.heading);
@@ -321,6 +344,53 @@ export class CarAgent {
   }
 
   private updateFitness(progressDelta: number) {
+    if (this.objective === 'drift') {
+      this.updateDriftFitness(progressDelta);
+      return;
+    }
+    this.updateGripFitness(progressDelta);
+  }
+
+  /**
+   * Drift scoring.
+   *
+   * The grip reward is not reusable here, and not by a small margin: it penalises yaw beyond
+   * what the corner's curvature implies, and penalises carrying more speed than the corner
+   * supports. Those two terms describe a drift almost exactly, so a drift agent trained on the
+   * grip reward would be punished precisely for succeeding.
+   *
+   * What survives from the grip reward is everything about *driving the course*: progress round
+   * the lap, staying on the road, and facing the right way. Track limits are identical, so a
+   * drift lap and a grip lap on the same layout are held to the same standard.
+   */
+  private updateDriftFitness(progressDelta: number) {
+    const progressRatio = this.trackLength > 0 ? this.maxProgress / this.trackLength : 0;
+    const samples = Math.max(1, this.qualitySamples);
+
+    // Progress still matters — otherwise the best strategy is to sit at the start line doing
+    // donuts forever, which scores angle at speed without ever driving the track.
+    const progressScore = progressRatio * 6000;
+    const momentumScore = progressDelta * 200;
+    const driftScore = this.drift.score * 12;
+
+    const backwardPenalty = (this.backwardSum / samples) * 600;
+    const offTrackPenalty = this.offTrackTime * 200;
+
+    let fitness = progressScore + momentumScore + driftScore - backwardPenalty - offTrackPenalty;
+
+    if (!this.state.alive && !this.completedLap) {
+      fitness -= (1 - progressRatio) * 1500;
+    }
+
+    // Flat, unlike the grip bonus: a drift lap is not judged on how quickly it was completed.
+    if (this.completedLap) fitness += 8000;
+
+    if (this.stagnationTime > 4 && progressRatio < 0.15) fitness -= 800;
+
+    this.commitGenome(fitness, progressRatio);
+  }
+
+  private updateGripFitness(progressDelta: number) {
     const progressRatio = this.trackLength > 0 ? this.maxProgress / this.trackLength : 0;
 
     const progressScore = progressRatio * 10000;
@@ -381,6 +451,10 @@ export class CarAgent {
       fitness -= 800;
     }
 
+    this.commitGenome(fitness, progressRatio);
+  }
+
+  private commitGenome(fitness: number, progressRatio: number) {
     this.genome.fitness = fitness;
     this.genome.distance = this.state.distance;
     this.genome.lapTime = this.state.lapTime;
@@ -388,6 +462,7 @@ export class CarAgent {
     this.genome.maxProgress = this.maxProgress;
     this.genome.progressRatio = progressRatio;
     this.genome.completedLap = this.completedLap;
+    this.genome.driftScore = this.drift.score;
   }
 
   private sampleOptimalSpeedAtS(targetS: number): number | null {

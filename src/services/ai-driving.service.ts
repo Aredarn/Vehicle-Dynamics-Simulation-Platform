@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome, AI_INPUT_COUNT, AI_HIDDEN_SIZE } from '../models/CarAgent';
+import { TrainingObjective } from '../utils/drift-scoring';
 import { RacingLinePoint } from '../interfaces/car-state';
 import { getTrackLength } from '../utils/track-utils';
 import { TrackModel } from '../utils/track-geometry';
@@ -13,6 +14,8 @@ export interface AILearningConfig {
   populationSize: number;
   generations: number;
   mutationRate: number;
+  /** What the population is being scored for. Defaults to the existing grip behaviour. */
+  objective?: TrainingObjective;
   /** Start the population from a previously trained model instead of random weights. */
   seedWeights?: number[] | null;
 }
@@ -33,6 +36,9 @@ export interface AIGenerationStats {
   averageFitness: number;
   active: boolean;
   carModel: string;
+  /** Best drift score this generation. Meaningless (and zero) for grip runs. */
+  bestDriftScore: number;
+  objective: TrainingObjective;
 }
 
 export interface AITrainingHistoryEntry {
@@ -46,6 +52,7 @@ export interface AITrainingHistoryEntry {
   trajectory: Array<{ x: number; y: number; heading: number; s: number }>;
   /** The generation's best genome, kept small (~220 floats) so every checkpoint is extractable as a model. */
   weights: number[];
+  bestDriftScore: number;
 }
 
 export interface AITrainingRun {
@@ -64,6 +71,9 @@ export interface AITrainingRun {
   carSettings: CarSettings;
   trackLabel: string;
   trackLength: number;
+  bestDriftScore: number;
+  /** So a drift run is never silently compared against a grip one. */
+  objective: TrainingObjective;
 }
 
 const GENOME_WEIGHT_COUNT = weightCount(AI_INPUT_COUNT, AI_HIDDEN_SIZE);
@@ -110,6 +120,8 @@ export class AIDrivingService {
     averageFitness: 0,
     active: false,
     carModel: '',
+    bestDriftScore: 0,
+    objective: 'grip',
   });
 
   private populationSubject = new BehaviorSubject<CarAgent[]>([]);
@@ -154,6 +166,7 @@ export class AIDrivingService {
     const populationSize = Math.max(4, config.populationSize);
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
+    const objective: TrainingObjective = config.objective ?? 'grip';
 
     // Freeze the layout for the whole run. The editor rebuilds its model on every change, but
     // snapshotting here keeps a run immune to edits regardless: an edit mid-run would otherwise
@@ -194,10 +207,12 @@ export class AIDrivingService {
       bestProgress: 0,
       aliveCount: 0,
       averageFitness: 0,
+      bestDriftScore: 0,
       entries: [],
       carSettings: { ...settings },
       trackLabel,
       trackLength,
+      objective,
     };
     this.runsSubject.next([...existingRuns, currentRun]);
 
@@ -210,7 +225,7 @@ export class AIDrivingService {
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
 
-      const agents = population.map(genome => new CarAgent(this.cloneGenome(genome), settings));
+      const agents = population.map(genome => new CarAgent(this.cloneGenome(genome), settings, objective));
       agents.forEach(agent => agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime));
 
       this.populationSubject.next(agents);
@@ -242,6 +257,7 @@ export class AIDrivingService {
       const roundedBestFitness = Math.round(bestGenome.fitness * 100) / 100;
       const roundedAverageFitness = Math.round(averageFitness * 100) / 100;
       const roundedBestLapTime = Math.round(bestLapTime * 100) / 100;
+      const bestDriftScore = Math.round((bestGenome.driftScore ?? 0) * 10) / 10;
 
       if (roundedBestFitness > bestFitnessEver + 1) {
         bestFitnessEver = roundedBestFitness;
@@ -269,6 +285,8 @@ export class AIDrivingService {
         averageFitness: roundedAverageFitness,
         active: true,
         carModel: settings.name,
+        bestDriftScore,
+        objective,
       });
 
       const entry: AITrainingHistoryEntry = {
@@ -281,6 +299,7 @@ export class AIDrivingService {
         averageFitness: roundedAverageFitness,
         trajectory: bestAgentSnapshot?.trajectory ?? [],
         weights: bestAgentSnapshot ? [...bestAgentSnapshot.genome.weights] : [],
+        bestDriftScore,
       };
 
       currentRun = {
@@ -291,6 +310,9 @@ export class AIDrivingService {
         bestProgress,
         aliveCount,
         averageFitness: roundedAverageFitness,
+        // The headline drift figure is the best ever reached in the run, not the latest
+        // generation's — a generation can regress without erasing what was achieved.
+        bestDriftScore: Math.max(currentRun.bestDriftScore, bestDriftScore),
         entries: [...currentRun.entries, entry],
       };
       this.updateRun(currentRun);
@@ -308,13 +330,13 @@ export class AIDrivingService {
 
     let bestAgents: CarAgent[] = [];
     if (bestAgentSnapshot) {
-      const agent = new CarAgent(this.cloneGenome(bestAgentSnapshot.genome), settings);
+      const agent = new CarAgent(this.cloneGenome(bestAgentSnapshot.genome), settings, objective);
       agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
       agent.trajectory = bestAgentSnapshot.trajectory.map(point => ({ ...point }));
       agent.state = { ...bestAgentSnapshot.state };
       bestAgents = [agent];
     } else if (bestGenome) {
-      bestAgents = [new CarAgent(this.cloneGenome(bestGenome), settings)];
+      bestAgents = [new CarAgent(this.cloneGenome(bestGenome), settings, objective)];
       bestAgents[0].reset(track, optimalLine.points, optimalLine.estimatedLapTime);
     }
 
@@ -408,6 +430,7 @@ export class AIDrivingService {
       maxProgress: 0,
       progressRatio: 0,
       completedLap: false,
+      driftScore: 0,
     };
   }
 
@@ -566,6 +589,7 @@ export class AIDrivingService {
       maxProgress: 0,
       progressRatio: 0,
       completedLap: false,
+      driftScore: 0,
     };
   }
 

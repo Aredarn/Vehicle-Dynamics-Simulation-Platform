@@ -18,7 +18,7 @@
 
     <div class="sidebar__body">
       <!-- Car -->
-      <app-car-settings *ngIf="activeTab === 'car'"></app-car-settings>
+      <app-car-settings *ngIf="activeTab === 'car'" [locked]="isDrift"></app-car-settings>
 
       <!-- Track -->
       <ng-container *ngIf="activeTab === 'track'">
@@ -209,6 +209,26 @@
             </button>
           </div>
 
+          <div class="objective">
+            <span class="eyebrow">What should it learn?</span>
+            <div class="segmented" role="group" aria-label="Training objective">
+              <button
+                *ngFor="let option of objectives"
+                type="button"
+                class="segmented__btn"
+                [class.is-active]="objective === option.value"
+                [attr.aria-pressed]="objective === option.value"
+                [disabled]="isTraining"
+                (click)="setObjective(option.value)"
+              >{{ option.label }}</button>
+            </div>
+            <p class="hint">{{ objectiveBlurb }}</p>
+            <p class="hint hint--locked" *ngIf="isDrift">
+              Drift locks the car to <strong>RWD + LSD</strong> — your previous drivetrain comes
+              back when you switch to Grip.
+            </p>
+          </div>
+
           <div class="param">
             <label for="popSize">Population</label>
             <input id="popSize" type="number" min="4" [(ngModel)]="aiConfig.populationSize" [disabled]="isTraining" />
@@ -312,6 +332,17 @@
             <span>Show my line</span>
           </label>
 
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="steeringAid" (change)="toggleSteeringAid()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Match lock to speed</span>
+          </label>
+          <p class="hint" *ngIf="driveMode">
+            A key is either off or full lock, and full lock at speed pushes the front tyres past
+            their peak so the car just washes wide. This caps what a press <em>asks for</em> —
+            it adds no grip. Turn it off for the raw mapping.
+          </p>
+
           <button type="button" class="btn btn--ghost" *ngIf="driveMode" (click)="resetRun()">
             <app-icon name="reset" [size]="15"></app-icon>
             <span>Restart lap</span>
@@ -410,6 +441,9 @@
           [referenceLap]="estimatedLapTime"
           [bestLap]="playerBestLap"
           [lastLap]="lastLap"
+          [drift]="isDrift"
+          [aiBestDrift]="aiStats.objective === 'drift' ? aiStats.bestDriftScore : 0"
+          [bestDrift]="playerBestDrift"
         ></app-driver-hud>
       </div>
     </div>

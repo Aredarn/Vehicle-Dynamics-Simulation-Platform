@@ -3,11 +3,19 @@ import { normalizeAngle, closestPointOnPathNear } from '../utils/track-utils';
 import { TrackModel, distanceBeyondEdge } from '../utils/track-geometry';
 import { CarSettings } from '../services/car-settings.service';
 import {
+  TrainingObjective,
+  DriftScoreState,
+  createDriftScoreState,
+  accumulateDrift,
+} from '../utils/drift-scoring';
+import {
   calculatePerformance,
   getDrivingCharacteristics,
   stepVehicleDynamics,
   offTrackGripMultiplier,
   driveSplit,
+  usefulSteerAngle,
+  STEER_LOCK,
   TRACK_LIMITS,
   DrivingCharacteristics,
   VehicleStepResult,
@@ -76,6 +84,8 @@ export interface PlayerTelemetry {
   throttle: number;
   brake: number;
   yawRate: number;
+  /** Share of full lock a key press currently commands, 1 when the aid is off. */
+  steerAuthority: number;
 
   onTrack: boolean;
   /** How far past the track edge the car is (m), and the grip left because of it. */
@@ -88,6 +98,17 @@ export interface PlayerTelemetry {
   distance: number;
   progressRatio: number;
   status: RunStatus;
+
+  /** Drift points banked this run. Only meaningful when driving for the drift objective. */
+  driftScore: number;
+  /** Multiplier from holding a slide without straightening — rewards linked drifts. */
+  driftMultiplier: number;
+  /** True while the car is above the scoring angle and on track. */
+  driftActive: boolean;
+  /** How long the current slide has been held (s). */
+  driftStreak: number;
+  /** Longest slide held this run (s). */
+  driftBestStreak: number;
 }
 
 /**
@@ -154,6 +175,21 @@ export class PlayerCar {
   private stepIndex = 0;
   private lastStep: VehicleStepResult | null = null;
   private lastBeyondEdge = 0;
+  private drift: DriftScoreState = createDriftScoreState();
+
+  /** Scored the same way the AI is, so a player's drift run compares with an agent's. */
+  objective: TrainingObjective = 'grip';
+
+  /**
+   * Matches how much lock a key press commands to what the front tires can actually use.
+   *
+   * A keyboard offers only "off" or "full lock", and full lock at speed puts the front tire far
+   * past its peak — the car washes straight on and will not rotate at all, so cornering is dull
+   * and drifting is impossible. The AI has no such problem: it commands a continuous steering
+   * value and simply picks a small one. This closes that gap. It caps the request only; grip,
+   * loads and every force are untouched.
+   */
+  steeringAid = true;
 
   constructor(private settings: CarSettings) {
     this.driving = getDrivingCharacteristics(settings);
@@ -190,6 +226,7 @@ export class PlayerCar {
     this.stepIndex = 0;
     this.lastStep = null;
     this.lastBeyondEdge = 0;
+    this.drift = createDriftScoreState();
     this.trail = [{ x: start.x, y: start.y, heading: start.heading, s: start.s }];
   }
 
@@ -258,6 +295,16 @@ export class PlayerCar {
       this.offTrackTime = Math.max(0, this.offTrackTime - dt * 2);
     }
 
+    if (this.objective === 'drift' && this.lastStep) {
+      accumulateDrift(
+        this.drift,
+        (this.lastStep.bodySlipAngle * 180) / Math.PI,
+        Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0),
+        onTrack,
+        dt
+      );
+    }
+
     const forwardAlignment = Math.cos(normalizeAngle(this.state.heading - closest.heading));
 
     // Judged before the off-track test, for the same reason the agent is: on an open layout
@@ -293,8 +340,15 @@ export class PlayerCar {
    * Moves the controls toward what the driver is asking for. Steering returns to centre on its
    * own when nothing is pressed, which is the rack unwinding, not a correction being applied.
    */
+  /** 0..1 share of full lock a key press should command at the current speed. */
+  private steerAuthority(): number {
+    if (!this.steeringAid) return 1;
+    const speed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
+    return clamp(usefulSteerAngle(this.settings, speed) / STEER_LOCK, 0.1, 1);
+  }
+
   private applyDriverInput(dt: number, input: DriverInput) {
-    const steerTarget = clamp(input.steer, -1, 1);
+    const steerTarget = clamp(input.steer, -1, 1) * this.steerAuthority();
     const returning = steerTarget === 0 || Math.sign(steerTarget) !== Math.sign(this.controls.steer);
     this.controls.steer = slew(
       this.controls.steer,
@@ -375,6 +429,7 @@ export class PlayerCar {
       powerKw: step ? (step.engineForce * this.state.speed) / 1000 : 0,
 
       steer: this.controls.steer,
+      steerAuthority: this.steerAuthority(),
       throttle: this.controls.throttle,
       brake: this.controls.brake,
       yawRate: this.state.yawRate,
@@ -389,6 +444,12 @@ export class PlayerCar {
       distance: this.distance,
       progressRatio: this.progressRatio,
       status: this.status,
+
+      driftScore: this.drift.score,
+      driftMultiplier: this.drift.multiplier,
+      driftActive: this.drift.active,
+      driftStreak: this.drift.streakSeconds,
+      driftBestStreak: this.drift.bestStreakSeconds,
     };
   }
 }

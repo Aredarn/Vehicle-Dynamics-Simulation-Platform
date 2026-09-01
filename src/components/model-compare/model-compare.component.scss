@@ -117,3 +117,17 @@
   &:hover &__actions,
   &.is-selected &__actions { opacity: 1; }
 }
+
+/* Marks a model trained for angle rather than lap time, so the two are never confused. */
+.model__tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: var(--r-1);
+  background: var(--warning);
+  color: var(--surface-0);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  vertical-align: middle;
+}

@@ -173,6 +173,8 @@ export class ResultsPanelComponent implements OnInit, OnDestroy {
       bestLapTime: entry.bestLapTime,
       bestFitness: entry.bestFitness,
       bestProgress: entry.bestProgress,
+      objective: run.objective ?? 'grip',
+      bestDriftScore: entry.bestDriftScore ?? 0,
     });
   }
 
