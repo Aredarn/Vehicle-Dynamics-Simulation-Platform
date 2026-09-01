@@ -22,9 +22,20 @@ import {
   DriftScoreState,
   createDriftScoreState,
   accumulateDrift,
+  driftEngagement,
+  driftTimeFraction,
+  DRIFT_MIN_ANGLE_DEG,
 } from '../utils/drift-scoring';
 
-export const AI_INPUT_COUNT = 14;
+/**
+ * 15 inputs. The fifteenth is body slip angle, added once the physics gained a slip-angle model.
+ *
+ * Under the old kinematic yaw model heading and velocity were the same variable, so slip was
+ * always exactly zero and there was nothing to feed. Now the car can genuinely be sideways —
+ * and without this input the network could not perceive the one quantity a drift is scored on,
+ * nor the difference between a tidy corner and the back stepping out. It was driving blind.
+ */
+export const AI_INPUT_COUNT = 15;
 export const AI_HIDDEN_SIZE = 12;
 
 /** Record one trajectory point per N simulation steps (rendering needs far less than 30Hz). */
@@ -72,6 +83,8 @@ export class CarAgent {
   private stagnationTime = 0;
   private lastFrontUsage = 0;
   private lastRearUsage = 0;
+  /** Body slip from the previous step — the feedback a driver uses to hold or catch a slide. */
+  private lastBodySlip = 0;
   private lastBeyondEdge: number | null = null;
   private stepIndex = 0;
 
@@ -88,6 +101,9 @@ export class CarAgent {
 
   /** What this agent is being scored for. Grip is the default and is unchanged by drift mode. */
   private drift: DriftScoreState = createDriftScoreState();
+  /** How much of the road's width the car used, averaged over the run. Drift lines are wide. */
+  private roadUseSum = 0;
+  private roadUseSamples = 0;
 
   constructor(
     public genome: AgentGenome,
@@ -113,6 +129,7 @@ export class CarAgent {
     this.stagnationTime = 0;
     this.lastFrontUsage = 0;
     this.lastRearUsage = 0;
+    this.lastBodySlip = 0;
     this.lastBeyondEdge = null;
     this.stepIndex = 0;
     this.overspeedSum = 0;
@@ -125,6 +142,8 @@ export class CarAgent {
     this.projectionIndex = 0;
     this.lastProjection = null;
     this.drift = createDriftScoreState();
+    this.roadUseSum = 0;
+    this.roadUseSamples = 0;
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
     this.state = {
@@ -165,6 +184,8 @@ export class CarAgent {
     const progressNorm = this.trackLength > 0 ? closest.s / this.trackLength : 0;
     const yawRateNorm = this.clamp(this.state.yawRate / 3, -1, 1);
     const slipNorm = this.clamp(Math.max(this.lastFrontUsage, this.lastRearUsage), 0, 1.5) / 1.5;
+    // Signed, and saturating at 60 degrees — beyond that the car is spinning, not driving.
+    const bodySlipNorm = this.clamp(this.lastBodySlip / (Math.PI / 3), -1, 1);
     const inputs = [
       ...sensors,
       speedNorm,
@@ -173,6 +194,7 @@ export class CarAgent {
       progressNorm,
       yawRateNorm,
       slipNorm,
+      bodySlipNorm,
       1,
     ];
 
@@ -202,6 +224,7 @@ export class CarAgent {
     );
     this.lastFrontUsage = dynResult.frontUsage;
     this.lastRearUsage = dynResult.rearUsage;
+    this.lastBodySlip = dynResult.bodySlipAngle;
     const distMoved = Math.hypot(this.state.x - prevX, this.state.y - prevY);
 
     this.state.lapTime += dt;
@@ -241,6 +264,15 @@ export class CarAgent {
       const slipDeg = (dynResult.bodySlipAngle * 180) / Math.PI;
       const groundSpeed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
       accumulateDrift(this.drift, slipDeg, groundSpeed, onTrack, dt);
+
+      // How far from the centreline the car is running, as a share of the road — but weighted
+      // by how sideways it is at the time. Unweighted, a perfectly tidy lap that merely hugs the
+      // edge collected the full road-use reward without ever drifting, which is precisely the
+      // short-and-clean line this term was meant to discourage.
+      const halfWidth = Math.max(1, this.track.halfWidth);
+      const sideways = Math.min(1, Math.abs(slipDeg) / DRIFT_MIN_ANGLE_DEG);
+      this.roadUseSum += Math.min(1, Math.abs(closestAfter.offset) / halfWidth) * sideways;
+      this.roadUseSamples++;
     }
 
     const headingError = normalizeAngle(this.state.heading - closest.heading);
@@ -367,23 +399,51 @@ export class CarAgent {
     const progressRatio = this.trackLength > 0 ? this.maxProgress / this.trackLength : 0;
     const samples = Math.max(1, this.qualitySamples);
 
-    // Progress still matters — otherwise the best strategy is to sit at the start line doing
-    // donuts forever, which scores angle at speed without ever driving the track.
-    const progressScore = progressRatio * 6000;
-    const momentumScore = progressDelta * 200;
-    const driftScore = this.drift.score * 12;
+    /*
+     * Angle held at speed has to dominate, by a wide margin.
+     *
+     * It previously sat alongside a progress term and a flat completion bonus that between them
+     * paid 14000 for simply completing a tidy lap, against a few hundred for the best drifting
+     * the optimizer had found. So it correctly learned to stop drifting: a driver evolved for
+     * grip scored identically to one evolved for drift. Progress is now a modest term that gets
+     * the car round the course, and everything above it is earned sideways.
+     */
+    const driftPoints = this.drift.score * 40;
+
+    // Shaping across the dead band below the scoring angle, so there is a gradient to follow
+    // before any points exist. Scaled by progress so it cannot be farmed by wiggling on the spot.
+    const engagement = driftEngagement(this.drift) * 2500 * progressRatio;
+
+    // Using the width of the road *while sideways* is part of drifting. Without this the
+    // shortest, tidiest line scored the same as a committed one, which is exactly the line the
+    // optimizer kept breeding.
+    const roadUse = this.roadUseSamples > 0
+      ? (this.roadUseSum / this.roadUseSamples) * 3500 * progressRatio
+      : 0;
+
+    // Progress is gated on actually being sideways. A clean, tidy lap still earns the floor —
+    // enough of a gradient to learn to drive the course at all — but nothing like the full
+    // amount, so completing a lap cleanly can never out-score drifting one.
+    const engagementRatio = driftEngagement(this.drift);
+    const progressScore = progressRatio * 2200 * (0.25 + 0.75 * engagementRatio);
+    const momentumScore = progressDelta * 60;
 
     const backwardPenalty = (this.backwardSum / samples) * 600;
     const offTrackPenalty = this.offTrackTime * 200;
 
-    let fitness = progressScore + momentumScore + driftScore - backwardPenalty - offTrackPenalty;
+    let fitness =
+      driftPoints + engagement + roadUse + progressScore + momentumScore
+      - backwardPenalty - offTrackPenalty;
 
     if (!this.state.alive && !this.completedLap) {
       fitness -= (1 - progressRatio) * 1500;
     }
 
-    // Flat, unlike the grip bonus: a drift lap is not judged on how quickly it was completed.
-    if (this.completedLap) fitness += 8000;
+    // Finishing matters, but finishing without ever going sideways is not a drift run — so the
+    // bonus is earned in proportion to how much of the lap was actually spent drifting.
+    if (this.completedLap) {
+      fitness += 3000 * driftTimeFraction(this.drift, this.state.lapTime);
+    }
 
     if (this.stagnationTime > 4 && progressRatio < 0.15) fitness -= 800;
 

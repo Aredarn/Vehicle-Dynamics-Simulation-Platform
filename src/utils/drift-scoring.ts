@@ -42,6 +42,18 @@ export function driftAngleQuality(bodySlipDeg: number): number {
 /** Running state for one drift run. Reset it when the car is reset. */
 export interface DriftScoreState {
   score: number;
+  /** Seconds actually spent above the scoring angle — how much of a run was a drift. */
+  driftSeconds: number;
+  /**
+   * Shaping signal, 0..1 per step, averaged by the caller.
+   *
+   * Quality is exactly zero below the threshold, which leaves the whole 0-15 degree range flat:
+   * a car sliding at 9 degrees gets no indication that 10 would be better, so hill-climbing can
+   * never find its way into the scoring zone. This ramps smoothly from 0 to 1 across that dead
+   * band, giving the optimizer something to follow before any points are on offer.
+   */
+  engagementSum: number;
+  samples: number;
   /** Seconds the current drift has been held without dropping below the threshold. */
   streakSeconds: number;
   /** Seconds since the angle last fell away, used to forgive brief transitions. */
@@ -52,7 +64,20 @@ export interface DriftScoreState {
 }
 
 export function createDriftScoreState(): DriftScoreState {
-  return { score: 0, streakSeconds: 0, sinceActive: 0, multiplier: 1, active: false, bestStreakSeconds: 0 };
+  return {
+    score: 0, driftSeconds: 0, engagementSum: 0, samples: 0,
+    streakSeconds: 0, sinceActive: 0, multiplier: 1, active: false, bestStreakSeconds: 0,
+  };
+}
+
+/** Average of the shaping signal over the run, 0..1. */
+export function driftEngagement(state: DriftScoreState): number {
+  return state.samples > 0 ? state.engagementSum / state.samples : 0;
+}
+
+/** Share of the run spent above the scoring angle, 0..1. */
+export function driftTimeFraction(state: DriftScoreState, elapsedSeconds: number): number {
+  return elapsedSeconds > 0 ? Math.min(1, state.driftSeconds / elapsedSeconds) : 0;
 }
 
 /**
@@ -73,6 +98,12 @@ export function accumulateDrift(
   dt: number
 ): number {
   const quality = onTrack ? driftAngleQuality(bodySlipDeg) : 0;
+
+  state.samples++;
+  state.engagementSum += onTrack
+    ? Math.min(1, Math.abs(bodySlipDeg) / DRIFT_MIN_ANGLE_DEG)
+    : 0;
+  if (quality > 0) state.driftSeconds += dt;
 
   if (quality > 0) {
     state.streakSeconds += dt;

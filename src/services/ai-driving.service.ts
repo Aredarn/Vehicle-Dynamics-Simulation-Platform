@@ -95,7 +95,13 @@ export function calculateSimulationSteps(
   topSpeedMs: number,
   dt: number,
   referenceLapSeconds = 0,
-  minSteps = 1200
+  minSteps = 1200,
+  /**
+   * Drifting a lap takes far longer than driving it quickly. On the grip budget a drift agent
+   * simply ran out of clock mid-lap, so completing the course — and every term that depends on
+   * progress — stayed out of reach no matter how well it drifted.
+   */
+  budgetMultiplier = 1
 ): number {
   const safeLength = Math.max(50, trackLength);
   const safeTopSpeed = Math.max(8, topSpeedMs);
@@ -105,7 +111,7 @@ export function calculateSimulationSteps(
     ? referenceLapSeconds * 3
     : (safeLength / Math.max(4, safeTopSpeed * 0.45)) * 2.2;
 
-  const targetSeconds = Math.max(75, estimatedLapSeconds);
+  const targetSeconds = Math.max(75, estimatedLapSeconds) * Math.max(1, budgetMultiplier);
   return Math.max(minSteps, Math.ceil(targetSeconds / dt));
 }
 
@@ -183,7 +189,10 @@ export class AIDrivingService {
     // Reference speed profile/lap time used to shape the reward (see CarAgent.updateFitness) —
     // reuses the same optimizer the UI's racing-line display uses, computed once per run.
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
-    const simulationSteps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
+    const simulationSteps = calculateSimulationSteps(
+      trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime, 1200,
+      objective === 'drift' ? 1.8 : 1
+    );
 
     // Seeding from a saved model starts the population at (and around) an already-competent
     // driver instead of from scratch, so training the same model on a different track adapts it

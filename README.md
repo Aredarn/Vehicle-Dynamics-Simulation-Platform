@@ -215,10 +215,10 @@ reference lap time = Σ ds / v_avg
 
 ### 3. The Driver — Neural Network
 
-A small feed-forward network: **14 inputs → 12 hidden (tanh) → 3 outputs**, giving
-`(14+1)·12 + (12+1)·3 = 219` weights. That weight array *is* the genome.
+A small feed-forward network: **15 inputs → 12 hidden (tanh) → 3 outputs**, giving
+`(15+1)·12 + (12+1)·3 = 231` weights. That weight array *is* the genome.
 
-| Inputs (14) | |
+| Inputs (15) | |
 |---|---|
 | 5 distance sensors | rays at −43°, −20°, 0°, +20°, +43° |
 | current speed | normalised to top speed |
@@ -227,6 +227,7 @@ A small feed-forward network: **14 inputs → 12 hidden (tanh) → 3 outputs**, 
 | lap progress | how far around the lap |
 | yaw rate | how fast the car is rotating |
 | grip usage | how close the tyres are to the limit |
+| **body slip angle** | how sideways the car is — signed, saturating at 60° |
 | bias | constant 1 |
 
 | Outputs (3) | Range |
@@ -302,8 +303,29 @@ the on-track requirement stops it scoring by spinning in the run-off. Everything
 the course* is retained — progress round the lap, facing forward, and identical track limits —
 so a drift lap and a grip lap on the same layout are held to the same standard.
 
-Fitness is progress plus drift points, with a flat completion bonus rather than a lap-time one:
-a drift lap is not judged on how quickly it was finished.
+Fitness is dominated by the drift points, and every other term is gated on actually being
+sideways:
+
+```
+fitness = 40 · driftPoints                    the whole point
+        + 2500 · engagement · progress        shaping across the 0-15° dead band
+        + 3500 · roadUse · progress           width used *while sideways*
+        + 2200 · progress · (0.25 + 0.75·engagement)
+        + 3000 · driftTimeFraction            if the lap was completed
+```
+
+Three of those exist because of what happens without them. With progress and a flat completion
+bonus paying 14000 for a tidy lap against a few hundred for the best drifting found, the
+optimizer correctly learned to **stop drifting** — a driver evolved for grip scored identically
+to one evolved for drift. Ungated, the road-use term was collected in full by a clean lap that
+merely hugged the edge. And the dead band below 15° had no gradient at all, so a car sliding at
+9° had no way of discovering that 10° was better.
+
+The network is also given **body slip angle** as an input. Under the old kinematic physics slip
+was always zero so there was nothing to feed; without it the network could not perceive the one
+quantity a drift is scored on. Adding it took the genome from 219 to 231 weights — models saved
+before are widened automatically with zero weights for the new input, so they drive exactly as
+they did.
 
 Selecting Drift locks the car to **RWD + LSD**; your previous drivetrain is restored when you
 switch back. Saved models record which objective they were trained for, so a drift model is

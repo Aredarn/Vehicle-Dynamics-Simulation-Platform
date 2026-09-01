@@ -268,8 +268,9 @@
 
           <div class="stat-grid">
             <div class="stat">
-              <div class="stat__label">Best lap</div>
-              <div class="stat__value">{{ aiStats.bestLapTime ? aiStats.bestLapTime.toFixed(2) : '—' }}<span class="stat__unit" *ngIf="aiStats.bestLapTime">s</span></div>
+              <div class="stat__label">{{ isDrift ? 'Best drift' : 'Best lap' }}</div>
+              <div class="stat__value" *ngIf="!isDrift">{{ aiStats.bestLapTime ? aiStats.bestLapTime.toFixed(2) : '—' }}<span class="stat__unit" *ngIf="aiStats.bestLapTime">s</span></div>
+              <div class="stat__value" *ngIf="isDrift">{{ aiStats.bestDriftScore ? (aiStats.bestDriftScore | number:'1.0-0') : '—' }}<span class="stat__unit" *ngIf="aiStats.bestDriftScore">pts</span></div>
             </div>
             <div class="stat">
               <div class="stat__label">Progress</div>
