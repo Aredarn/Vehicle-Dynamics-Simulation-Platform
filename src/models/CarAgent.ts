@@ -410,15 +410,24 @@ export class CarAgent {
      */
     const driftPoints = this.drift.score * 40;
 
-    // Shaping across the dead band below the scoring angle, so there is a gradient to follow
-    // before any points exist. Scaled by progress so it cannot be farmed by wiggling on the spot.
-    const engagement = driftEngagement(this.drift) * 2500 * progressRatio;
+    /*
+     * Shaping across the dead band below the scoring angle, so there is a gradient to follow
+     * before any points exist.
+     *
+     * Gated on the square root of progress rather than progress itself. Multiplying by progress
+     * directly meant an agent that slid and spun off at 10% of the lap kept only a tenth of its
+     * shaping, so early sliding — the behaviour this is meant to encourage — was still worth
+     * less than pottering round intact. The root keeps the gate (a car doing donuts on the start
+     * line goes nowhere and earns nearly nothing) while paying an early slider three times more.
+     */
+    const reach = Math.sqrt(progressRatio);
+    const engagement = driftEngagement(this.drift) * 2500 * reach;
 
     // Using the width of the road *while sideways* is part of drifting. Without this the
     // shortest, tidiest line scored the same as a committed one, which is exactly the line the
     // optimizer kept breeding.
     const roadUse = this.roadUseSamples > 0
-      ? (this.roadUseSum / this.roadUseSamples) * 3500 * progressRatio
+      ? (this.roadUseSum / this.roadUseSamples) * 3500 * reach
       : 0;
 
     // Progress is gated on actually being sideways. A clean, tidy lap still earns the floor —
@@ -429,23 +438,32 @@ export class CarAgent {
     const momentumScore = progressDelta * 60;
 
     const backwardPenalty = (this.backwardSum / samples) * 600;
-    const offTrackPenalty = this.offTrackTime * 200;
+    // Lighter than grip's: a drift line legitimately puts a car near the edge far more often,
+    // and the run ends within a couple of seconds off track anyway.
+    const offTrackPenalty = this.offTrackTime * 80;
 
     let fitness =
       driftPoints + engagement + roadUse + progressScore + momentumScore
       - backwardPenalty - offTrackPenalty;
 
-    if (!this.state.alive && !this.completedLap) {
-      fitness -= (1 - progressRatio) * 1500;
-    }
+    /*
+     * No crash penalty here, unlike grip.
+     *
+     * Grip's penalty is right for grip: a crashed lap is a failed lap. For drift it inverted the
+     * whole objective. Measured over 400 random policies, agents that actually slid averaged
+     * -1633 fitness (they died essentially every time, taking a ~1450 penalty), while agents
+     * that pottered around gripping and survived averaged +15. At the very point where the
+     * optimizer decides what to pursue, it was being told that going sideways is catastrophic
+     * and that gripping is safe — so it learned to grip, which is exactly what it kept doing.
+     *
+     * Crashing needs no penalty here because it is already self-punishing: a spun car banks no
+     * more points, and points are the entire score. Staying alive is rewarded by having longer
+     * to earn, rather than by avoiding a cliff.
+     */
 
-    // Finishing matters, but finishing without ever going sideways is not a drift run — so the
-    // bonus is earned in proportion to how much of the lap was actually spent drifting.
     if (this.completedLap) {
       fitness += 3000 * driftTimeFraction(this.drift, this.state.lapTime);
     }
-
-    if (this.stagnationTime > 4 && progressRatio < 0.15) fitness -= 800;
 
     this.commitGenome(fitness, progressRatio);
   }

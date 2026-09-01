@@ -308,11 +308,25 @@ sideways:
 
 ```
 fitness = 40 · driftPoints                    the whole point
-        + 2500 · engagement · progress        shaping across the 0-15° dead band
-        + 3500 · roadUse · progress           width used *while sideways*
+        + 2500 · engagement · √progress       shaping across the 0-15° dead band
+        + 3500 · roadUse   · √progress        width used *while sideways*
         + 2200 · progress · (0.25 + 0.75·engagement)
         + 3000 · driftTimeFraction            if the lap was completed
 ```
+
+**There is no crash penalty**, unlike Grip — and that single difference decides whether any of
+this is learnable. Grip's penalty is right for grip: a crashed lap is a failed lap. Applied to
+drift it inverted the objective. Measured over 400 random policies, agents that actually slid
+averaged **−1633** fitness (they died essentially every time, taking a ~1450 penalty) while
+agents that pottered around gripping and survived averaged **+15**. At the exact point where the
+optimizer decides what to pursue, it was being told that going sideways is catastrophic and
+gripping is safe, so it learned to grip. With the penalty removed and the shaping gated on
+√progress rather than progress — an agent that spins off at 10% of the lap otherwise keeps only
+a tenth of its shaping — the same measurement reads **+75 for sliding against +65 for
+surviving**, and a population starts drifting in its first generation instead of never.
+
+Crashing needs no penalty because it is already self-punishing: a spun car banks no more points,
+and points are the whole score. Staying alive pays by giving you longer to earn.
 
 Three of those exist because of what happens without them. With progress and a flat completion
 bonus paying 14000 for a tidy lap against a few hundred for the best drifting found, the
