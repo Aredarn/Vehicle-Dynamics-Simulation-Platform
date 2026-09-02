@@ -54,7 +54,7 @@
     </div>
     <div class="drift__row">
       <span class="num">&times;{{ telemetry.driftMultiplier | number: '1.1-1' }}</span>
-      <span>{{ telemetry.driftStreak | number: '1.1-1' }}s held</span>
+      <span>{{ telemetry.driftTransitions }} linked</span>
     </div>
     <div class="drift__row" *ngIf="bestDrift || aiBestDrift">
       <span>best {{ bestDrift | number: '1.0-0' }}</span>

@@ -13,6 +13,7 @@ export class Car {
     finalDrive!: number;
     wheelbase!: number;
     drivetrain!: Drivetrain;
+    steeringLockDeg!: number;
     differential!: Differential;
 
     state: CarState = {
@@ -41,6 +42,7 @@ export class Car {
         this.wheelbase = settings.wheelbase;
         this.drivetrain = settings.drivetrain;
         this.differential = settings.differential;
+        this.steeringLockDeg = settings.steeringLockDeg;
         const performance = calculatePerformance(settings);
         this.maxSpeed = performance.topSpeed / 3.6;
         this.invalidateRacingLine();
@@ -168,6 +170,7 @@ export class Car {
             wheelbase: this.wheelbase,
             drivetrain: this.drivetrain,
             differential: this.differential,
+            steeringLockDeg: this.steeringLockDeg,
         };
     }
 

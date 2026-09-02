@@ -24,6 +24,15 @@ export interface CarSettings {
   wheelbase: number;
   drivetrain: Drivetrain;
   differential: Differential;
+  /**
+   * Maximum front-wheel steering angle, in degrees.
+   *
+   * A road car runs about 26 degrees. Drift cars fit modified knuckles for 55-70, because
+   * catching and swapping a big slide needs far more countersteer than a standard rack can
+   * give — without it a car past about 30 degrees of body slip simply cannot be recovered or
+   * transitioned, whatever the driver does.
+   */
+  steeringLockDeg: number;
 }
 
 export const DEFAULT_CAR_SETTINGS: CarSettings = {
@@ -39,6 +48,7 @@ export const DEFAULT_CAR_SETTINGS: CarSettings = {
   wheelbase: 2.7,
   drivetrain: 'rwd',
   differential: 'lsd',
+  steeringLockDeg: 26,
 };
 
 @Injectable({ providedIn: 'root' })

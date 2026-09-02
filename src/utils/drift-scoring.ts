@@ -16,8 +16,80 @@ export const DRIFT_IDEAL_ANGLE_DEG = 45;
 /** Past this the car is spinning rather than drifting, and the score falls back to zero. */
 export const DRIFT_MAX_ANGLE_DEG = 70;
 
-/** How long the angle may drop out before a run is considered broken. */
-export const DRIFT_STREAK_GRACE_SECONDS = 0.35;
+/**
+ * How long the angle may drop out before a run is considered broken.
+ *
+ * Long enough to cover a real transition, so swapping the slide from one side to the other on an
+ * alternating track counts as one linked drift rather than two separate ones.
+ */
+export const DRIFT_STREAK_GRACE_SECONDS = 0.6;
+
+/** Above this curvature the track is a corner with a direction, not effectively a straight. */
+export const DRIFT_CORNER_CURVATURE = 0.008;
+
+/**
+ * What a slide going the *wrong way* for the corner is worth, as a fraction of full credit.
+ *
+ * Without this, sliding left through a right-hander scored exactly as much as sliding left
+ * through a left-hander, so committing to a single direction and running out of road at the next
+ * corner was a perfectly good strategy — and it is what the optimizer kept settling on. Drifting
+ * a course means sliding *into* each corner, which forces the transitions that make the second
+ * corner reachable at all.
+ */
+export const DRIFT_WRONG_WAY_CREDIT = 0.15;
+
+/**
+ * What a slide down a *straight* is worth, as a fraction of a proper corner drift.
+ *
+ * Drifting a course means drifting its corners. Paying full credit for angle held anywhere meant
+ * a layout that is two-thirds straight could be farmed by sliding one way along the straights and
+ * never dealing with a corner at all — which is exactly what kept being bred, and why a car would
+ * slide beautifully in one direction and then simply run out of road at the first corner going
+ * the other way. Kept well above zero because transitions happen on the short straights between
+ * corners, and those should still pay.
+ */
+export const DRIFT_STRAIGHT_CREDIT = 0.35;
+
+/**
+ * How far the car's nose may stray from the track direction before a slide stops counting.
+ *
+ * Expressed as cos(heading error): full credit while the nose is within ~49 degrees of the way
+ * the road goes, fading to nothing by ~84 degrees.
+ *
+ * This is what separates drifting from looping. Points are earned per metre of track advanced,
+ * so a car that spirals slowly along a straight holds maximum angle for *every* metre it covers
+ * — the best possible points-per-metre, which no honest lap can match, because a real lap has
+ * straights where the car is not sideways. The difference is the nose: through a drift it keeps
+ * pointing broadly down the road, while through a loop it sweeps across and back up the track.
+ */
+export const DRIFT_ALIGN_FULL = 0.65;
+export const DRIFT_ALIGN_NONE = 0.1;
+
+/** 0..1 credit for the car still facing down the track while it slides. */
+export function driftHeadingFactor(forwardAlignment: number): number {
+  const span = DRIFT_ALIGN_FULL - DRIFT_ALIGN_NONE;
+  return Math.max(0, Math.min(1, (forwardAlignment - DRIFT_ALIGN_NONE) / span));
+}
+
+/** Points awarded for linking a drift into the opposite direction — the hard part. */
+export const DRIFT_TRANSITION_BONUS = 12;
+
+/**
+ * How much credit a slide earns for going the right way into the corner it is in.
+ *
+ * On a straight there is no wrong way, so any direction scores fully; the factor tapers in as
+ * the corner tightens. A left corner has positive curvature and is drifted with negative body
+ * slip (the car points further left than it travels), which is the convention the physics
+ * produces.
+ */
+export function driftDirectionFactor(bodySlipDeg: number, signedCurvature: number): number {
+  const cornering = Math.min(1, Math.abs(signedCurvature) / DRIFT_CORNER_CURVATURE);
+  const wantedSign = -Math.sign(signedCurvature);
+  const goingTheRightWay = bodySlipDeg !== 0 && Math.sign(bodySlipDeg) === wantedSign;
+  const cornerCredit = goingTheRightWay ? 1 : DRIFT_WRONG_WAY_CREDIT;
+  // Blends from straight-line credit into full corner credit as the corner tightens.
+  return DRIFT_STRAIGHT_CREDIT + cornering * (cornerCredit - DRIFT_STRAIGHT_CREDIT);
+}
 /** A sustained drift builds toward this multiplier; linking corners is worth more than flicks. */
 export const DRIFT_MAX_MULTIPLIER = 2;
 /** Seconds of continuous drifting needed to reach the full multiplier. */
@@ -61,12 +133,17 @@ export interface DriftScoreState {
   multiplier: number;
   active: boolean;
   bestStreakSeconds: number;
+  /** Direction of the last scoring slide, so linking into the opposite one can be spotted. */
+  lastActiveSign: number;
+  /** Completed changes of direction while still drifting — the linked-corner count. */
+  transitions: number;
 }
 
 export function createDriftScoreState(): DriftScoreState {
   return {
     score: 0, driftSeconds: 0, engagementSum: 0, samples: 0,
     streakSeconds: 0, sinceActive: 0, multiplier: 1, active: false, bestStreakSeconds: 0,
+    lastActiveSign: 0, transitions: 0,
   };
 }
 
@@ -83,7 +160,13 @@ export function driftTimeFraction(state: DriftScoreState, elapsedSeconds: number
 /**
  * Accumulates one step of drift score and returns the points earned.
  *
- * Points are angle quality times speed, so a slow slide is worth little and a fast one a lot.
+ * Points are angle quality times the metres of *track* the car covered this step — not the
+ * metres it travelled. Those are the same thing when drifting down a road and wildly different
+ * when spinning on the spot: a donut travels plenty of distance, advances nothing, and holds a
+ * constant angle that also maxes out the streak multiplier. Scoring progress instead of distance
+ * makes donuts worth nothing without needing a rule that special-cases them, and it keeps speed
+ * rewarded, since a faster car covers more track per second.
+ *
  * Going off track scores nothing at all — otherwise the quickest route to a high score would be
  * to spin in the run-off rather than drive the course.
  *
@@ -93,15 +176,26 @@ export function driftTimeFraction(state: DriftScoreState, elapsedSeconds: number
 export function accumulateDrift(
   state: DriftScoreState,
   bodySlipDeg: number,
-  speedMs: number,
+  /** Metres of track advanced this step, already capped against corner-cutting. */
+  advanceMetres: number,
   onTrack: boolean,
-  dt: number
+  dt: number,
+  /** Signed curvature of the track here: positive turns left, negative right. */
+  signedCurvature = 0,
+  /** cos of the angle between where the car points and where the track goes. */
+  forwardAlignment = 1
 ): number {
-  const quality = onTrack ? driftAngleQuality(bodySlipDeg) : 0;
+  const facingDownTrack = driftHeadingFactor(forwardAlignment);
+  const quality = onTrack
+    ? driftAngleQuality(bodySlipDeg)
+      * driftDirectionFactor(bodySlipDeg, signedCurvature)
+      * facingDownTrack
+    : 0;
 
   state.samples++;
+  // The shaping is gated the same way, or a looping car simply farms that instead.
   state.engagementSum += onTrack
-    ? Math.min(1, Math.abs(bodySlipDeg) / DRIFT_MIN_ANGLE_DEG)
+    ? Math.min(1, Math.abs(bodySlipDeg) / DRIFT_MIN_ANGLE_DEG) * facingDownTrack
     : 0;
   if (quality > 0) state.driftSeconds += dt;
 
@@ -123,7 +217,17 @@ export function accumulateDrift(
 
   if (quality <= 0) return 0;
 
-  const points = quality * speedMs * state.multiplier * dt;
+  // Linking into the opposite direction is the hard part of drifting a course, and the only way
+  // to carry a slide through corners that alternate. It is worth points in its own right.
+  const sign = Math.sign(bodySlipDeg);
+  let bonus = 0;
+  if (sign !== 0 && state.lastActiveSign !== 0 && sign !== state.lastActiveSign) {
+    state.transitions++;
+    bonus = DRIFT_TRANSITION_BONUS * quality;
+  }
+  if (sign !== 0) state.lastActiveSign = sign;
+
+  const points = quality * Math.max(0, advanceMetres) * state.multiplier + bonus;
   state.score += points;
   return points;
 }

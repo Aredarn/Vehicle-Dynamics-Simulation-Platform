@@ -249,8 +249,15 @@ export function offTrackGripMultiplier(beyondEdge: number): number {
   return 1 - t * (1 - TRACK_LIMITS.offTrackGripFloor);
 }
 
-/** Front-wheel steering angle at full lock (rad). A real rack, not a yaw-rate request. */
+/** Fallback front-wheel steering angle at full lock (rad), for settings that predate the field. */
 export const STEER_LOCK = 0.46;
+
+/** This car's steering lock in radians — a real rack, not a yaw-rate request. */
+export function steerLockOf(settings: CarSettings): number {
+  const deg = toNumber(settings.steeringLockDeg, 0);
+  if (!(deg > 0)) return STEER_LOCK;
+  return clamp((deg * Math.PI) / 180, 0.15, 1.4);
+}
 const BRAKE_BIAS_FRONT = 0.6;
 const CG_HEIGHT = 0.5; // m, fixed assumption — CarSettings carries no CG field
 
@@ -424,7 +431,7 @@ export function stepVehicleDynamics(
   const driveRatio = toNumber(settings.finalDrive) / 3.8;
   const effectivePower = powerW * efficiency;
   const dragConst = 0.5 * rho * toNumber(settings.dragCoeff) * toNumber(settings.frontalArea);
-  const steerAngle = clamp(controls.steer, -1, 1) * STEER_LOCK;
+  const steerAngle = clamp(controls.steer, -1, 1) * steerLockOf(settings);
 
   let vx = Math.max(state.speed, 0);
   let vy = state.lateralVelocity ?? 0;

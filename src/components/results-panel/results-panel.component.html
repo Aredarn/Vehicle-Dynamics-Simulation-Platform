@@ -47,6 +47,15 @@
     ></app-trend-chart>
 
     <app-trend-chart
+      *ngIf="hasDriftRun"
+      title="Best drift score"
+      unit="pts"
+      [series]="driftSeries"
+      [height]="120"
+    ></app-trend-chart>
+
+    <app-trend-chart
+      *ngIf="hasGripRun"
       title="Best lap time"
       unit="s"
       [series]="lapSeries"

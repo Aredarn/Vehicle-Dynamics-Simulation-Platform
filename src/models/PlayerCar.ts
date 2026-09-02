@@ -1,5 +1,5 @@
 import { RacingLinePoint } from '../interfaces/car-state';
-import { normalizeAngle, closestPointOnPathNear } from '../utils/track-utils';
+import { normalizeAngle, closestPointOnPathNear, signedCurvatureAt } from '../utils/track-utils';
 import { TrackModel, distanceBeyondEdge } from '../utils/track-geometry';
 import { CarSettings } from '../services/car-settings.service';
 import {
@@ -15,7 +15,7 @@ import {
   offTrackGripMultiplier,
   driveSplit,
   usefulSteerAngle,
-  STEER_LOCK,
+  steerLockOf,
   TRACK_LIMITS,
   DrivingCharacteristics,
   VehicleStepResult,
@@ -109,6 +109,8 @@ export interface PlayerTelemetry {
   driftStreak: number;
   /** Longest slide held this run (s). */
   driftBestStreak: number;
+  /** Times the slide was linked into the opposite direction. */
+  driftTransitions: number;
 }
 
 /**
@@ -295,16 +297,6 @@ export class PlayerCar {
       this.offTrackTime = Math.max(0, this.offTrackTime - dt * 2);
     }
 
-    if (this.objective === 'drift' && this.lastStep) {
-      accumulateDrift(
-        this.drift,
-        (this.lastStep.bodySlipAngle * 180) / Math.PI,
-        Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0),
-        onTrack,
-        dt
-      );
-    }
-
     const forwardAlignment = Math.cos(normalizeAngle(this.state.heading - closest.heading));
 
     // Judged before the off-track test, for the same reason the agent is: on an open layout
@@ -325,12 +317,30 @@ export class PlayerCar {
       return true;
     }
 
+    let progressDelta = 0;
     if (onTrack && (forwardAlignment > 0.15 || closest.distance < 2)) {
       // Same cap the agent gets: arc-length progress may not outrun the distance actually
       // covered, so cutting across an apex cannot claim track the car never drove.
       const rawCandidate = Math.max(this.maxProgress, closest.s);
       const candidate = Math.min(rawCandidate, this.maxProgress + distMoved * TRACK_LIMITS.progressSlack);
-      if (candidate > this.maxProgress) this.maxProgress = candidate;
+      if (candidate > this.maxProgress) {
+        progressDelta = candidate - this.maxProgress;
+        this.maxProgress = candidate;
+      }
+    }
+
+    // Scored on track advanced rather than distance travelled, exactly as the AI is — which is
+    // what stops a stationary donut from out-scoring a drift down the road.
+    if (this.objective === 'drift' && this.lastStep) {
+      accumulateDrift(
+        this.drift,
+        (this.lastStep.bodySlipAngle * 180) / Math.PI,
+        progressDelta,
+        onTrack,
+        dt,
+        signedCurvatureAt(this.trackPath, closest.index),
+        forwardAlignment
+      );
     }
 
     return false;
@@ -344,7 +354,7 @@ export class PlayerCar {
   private steerAuthority(): number {
     if (!this.steeringAid) return 1;
     const speed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
-    return clamp(usefulSteerAngle(this.settings, speed) / STEER_LOCK, 0.1, 1);
+    return clamp(usefulSteerAngle(this.settings, speed) / steerLockOf(this.settings), 0.1, 1);
   }
 
   private applyDriverInput(dt: number, input: DriverInput) {
@@ -450,6 +460,7 @@ export class PlayerCar {
       driftActive: this.drift.active,
       driftStreak: this.drift.streakSeconds,
       driftBestStreak: this.drift.bestStreakSeconds,
+      driftTransitions: this.drift.transitions,
     };
   }
 }

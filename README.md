@@ -21,6 +21,7 @@ learn to drive that track as fast as it can, using trail braking and a proper ra
 | Final drive ratio | – | Scales drive force at the wheels |
 | Wheelbase | m | Weight transfer geometry, yaw inertia, and the drawn size of the car |
 | Drivetrain | FWD / RWD / AWD | Which axle gets the power — and so which end lets go first |
+| Steering lock | ° | How much countersteer is available — decides whether a slide can be caught |
 | Differential | Open / LSD | How the driven axle shares torque between its two wheels |
 
 <img width="1919" height="1028" alt="VDSP screenshot" src="https://github.com/user-attachments/assets/f71a047a-a172-433f-b11a-5ba0bc3d0ecd" />
@@ -294,9 +295,40 @@ quality = 0                            below 15°            (not drifting)
         = ramps 0 → 1  between 15° and 45°                  (committed slide)
         = falls 1 → 0  between 45° and 70°                  (spinning, not drifting)
 
-points += quality · speed · multiplier · dt      on track only
+points += quality · metresOfTrackAdvanced · multiplier      on track only
 multiplier = 1 → 2 as a slide is held, reset if it drops out for 0.35 s
 ```
+
+Credit also depends on **where the nose points**. Full credit while the car is facing within
+~49° of the way the road goes, fading to nothing by ~84°. This is what separates drifting from
+looping: points are earned per metre of track advanced, so a car spiralling slowly along a
+straight holds maximum angle for *every* metre it covers — the best possible points-per-metre,
+which no honest lap can match, because a real lap has straights where the car is not sideways.
+The difference is the nose. Through a drift it keeps pointing broadly down the road; through a
+loop it sweeps across and back up the track. Over the same 300 m at the same 45°, a drift scores
+200 and a loop 45.
+
+Credit depends on *where* the slide happens and *which way* it goes. A corner drifted the right
+way scores in full; the same angle held the wrong way through that corner scores 0.15; a slide
+down a straight scores 0.35. Without this, a layout that is two-thirds straight could be farmed
+by sliding one way along the straights and never dealing with a corner at all — which is exactly
+what kept being bred, and why a car would slide beautifully in one direction and then run out of
+road at the first corner going the other way. Linking a slide into the opposite direction pays a
+bonus, because that is the hard part of drifting a course.
+
+**Steering lock decides whether any of this is possible.** With a road car's 26°, a slide past
+about 30° cannot be caught by *any* input — measured, the car spins every time and ends up
+travelling backwards. At 65° the same slide is caught and the car drives away at 112 km/h. Real
+drift cars fit modified knuckles for exactly this reason, so selecting Drift fits them: RWD, LSD
+and 60° of lock.
+
+Points come from the metres of **track** the car covers, not the metres it travels. Those are the
+same thing when drifting down a road and completely different when spinning on the spot: a donut
+covers plenty of ground, advances nothing, and holds a constant angle that also maxes the streak
+multiplier. Scoring progress instead of distance makes donuts worthless without needing a rule
+that special-cases them — the same 45° held for 20 seconds is worth **836 points down the road
+and 11 in a donut** — and it still rewards speed, since a faster car covers more track per
+second.
 
 The upper falloff is what stops the optimizer discovering that a permanent spin scores highest;
 the on-track requirement stops it scoring by spinning in the run-off. Everything about *driving
@@ -313,6 +345,10 @@ fitness = 40 · driftPoints                    the whole point
         + 2200 · progress · (0.25 + 0.75·engagement)
         + 3000 · driftTimeFraction            if the lap was completed
 ```
+
+Running out of road is expensive: `offTrackTime · 300 + furthestPastTheEdge · 150`, so a big
+excursion costs far more than putting a wheel over the line, and a drift that ends in the scenery
+is a failed drift.
 
 **There is no crash penalty**, unlike Grip — and that single difference decides whether any of
 this is learnable. Grip's penalty is right for grip: a crashed lap is a failed lap. Applied to

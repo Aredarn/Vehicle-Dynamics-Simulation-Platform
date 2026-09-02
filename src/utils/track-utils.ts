@@ -177,6 +177,22 @@ export function rayDistanceToTrackEdge(
   return maxDistance;
 }
 
+/**
+ * Signed curvature at a point on the path: positive turns left, negative right.
+ *
+ * `computeCurvature` returns a magnitude, which cannot tell a left-hander from a right-hander —
+ * and telling them apart is what decides whether a slide is going the right way for the corner.
+ */
+export function signedCurvatureAt(path: RacingLinePoint[], index: number, span = 3): number {
+  const n = path.length;
+  if (n < 3) return 0;
+  const a = Math.max(0, Math.min(n - 1, index - span));
+  const b = Math.max(0, Math.min(n - 1, index + span));
+  const ds = path[b].s - path[a].s;
+  if (Math.abs(ds) < 1e-6) return 0;
+  return normalizeAngle(path[b].heading - path[a].heading) / ds;
+}
+
 export function computeCurvature(line: RacingLinePoint[], index: number): number {
   if (index <= 0 || index >= line.length - 1) return 0;
   const p0 = line[index - 1];

@@ -224,8 +224,15 @@
             </div>
             <p class="hint">{{ objectiveBlurb }}</p>
             <p class="hint hint--locked" *ngIf="isDrift">
-              Drift locks the car to <strong>RWD + LSD</strong> — your previous drivetrain comes
-              back when you switch to Grip.
+              Drift locks the car to <strong>RWD + LSD with 60&deg; of steering lock</strong> —
+              your previous setup comes back when you switch to Grip.
+            </p>
+            <p class="hint" *ngIf="isDrift">
+              Drift needs <strong>far more generations than grip</strong>. The population learns
+              to drive the track first and only then starts adding angle, so a run stopped around
+              80 looks like it has just learned to grip. Expect the score to climb properly past
+              ~150. Starting from a saved model makes drift <em>worse</em>, not better — a grip
+              driver is deeply committed to not sliding.
             </p>
           </div>
 

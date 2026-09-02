@@ -32,6 +32,16 @@ export class ResultsPanelComponent implements OnInit, OnDestroy {
   fitnessSeries: TrendSeries[] = [];
   lapSeries: TrendSeries[] = [];
   survivalSeries: TrendSeries[] = [];
+  driftSeries: TrendSeries[] = [];
+
+  /** Drift runs are plotted on points; grip runs on lap time. The two are not comparable. */
+  get hasDriftRun(): boolean {
+    return this.comparedRuns.some(run => run.objective === 'drift');
+  }
+
+  get hasGripRun(): boolean {
+    return this.comparedRuns.some(run => (run.objective ?? 'grip') !== 'drift');
+  }
 
   private runsSub!: Subscription;
   private selectedSub!: Subscription;
@@ -129,6 +139,14 @@ export class ResultsPanelComponent implements OnInit, OnDestroy {
       color: this.runColor(run),
       values: run.entries.map(e => e.aliveCount),
     }));
+    // Only drift runs have a meaningful score here; a grip run would plot a flat zero.
+    this.driftSeries = runs
+      .filter(run => run.objective === 'drift')
+      .map(run => ({
+        label: this.shortLabel(run),
+        color: this.runColor(run),
+        values: run.entries.map(e => e.bestDriftScore ?? 0),
+      }));
   }
 
   shortLabel(run: AITrainingRun): string {

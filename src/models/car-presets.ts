@@ -25,6 +25,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 2.5,
       drivetrain: 'fwd',
       differential: 'open',
+      steeringLockDeg: 26,
     },
   },
   {
@@ -43,6 +44,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 2.7,
       drivetrain: 'rwd',
       differential: 'lsd',
+      steeringLockDeg: 26,
     },
   },
   {
@@ -61,6 +63,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 2.6,
       drivetrain: 'rwd',
       differential: 'lsd',
+      steeringLockDeg: 26,
     },
   },
   {
@@ -79,6 +82,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 1.53,
       drivetrain: 'rwd',
       differential: 'lsd',
+      steeringLockDeg: 26,
     },
   },
   {
@@ -97,6 +101,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 2.9,
       drivetrain: 'rwd',
       differential: 'lsd',
+      steeringLockDeg: 26,
     },
   },
   {
@@ -115,6 +120,7 @@ export const CAR_PRESETS: CarPreset[] = [
       wheelbase: 2.65,
       drivetrain: 'awd',
       differential: 'lsd',
+      steeringLockDeg: 26,
     },
   },
 ];

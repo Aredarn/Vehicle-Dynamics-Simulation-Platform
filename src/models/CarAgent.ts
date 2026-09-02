@@ -3,6 +3,7 @@ import {
   normalizeAngle,
   closestPointOnPath,
   closestPointOnPathNear,
+  signedCurvatureAt,
 } from '../utils/track-utils';
 import { TrackModel, distanceBeyondEdge, rayDistanceToEdge } from '../utils/track-geometry';
 import { CarSettings } from '../services/car-settings.service';
@@ -24,6 +25,7 @@ import {
   accumulateDrift,
   driftEngagement,
   driftTimeFraction,
+  driftHeadingFactor,
   DRIFT_MIN_ANGLE_DEG,
 } from '../utils/drift-scoring';
 
@@ -104,6 +106,8 @@ export class CarAgent {
   /** How much of the road's width the car used, averaged over the run. Drift lines are wide. */
   private roadUseSum = 0;
   private roadUseSamples = 0;
+  /** Furthest the car ever strayed past the edge (m), so a big excursion costs more than a nudge. */
+  private worstBeyondEdge = 0;
 
   constructor(
     public genome: AgentGenome,
@@ -144,6 +148,7 @@ export class CarAgent {
     this.drift = createDriftScoreState();
     this.roadUseSum = 0;
     this.roadUseSamples = 0;
+    this.worstBeyondEdge = 0;
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
     this.state = {
@@ -253,26 +258,12 @@ export class CarAgent {
     );
     const onTrack = beyondEdgeAfter <= 0.01;
     this.lastBeyondEdge = beyondEdgeAfter;
+    this.worstBeyondEdge = Math.max(this.worstBeyondEdge, beyondEdgeAfter);
 
     if (!onTrack) {
       this.offTrackTime += dt;
     } else {
       this.offTrackTime = Math.max(0, this.offTrackTime - dt * 2);
-    }
-
-    if (this.objective === 'drift') {
-      const slipDeg = (dynResult.bodySlipAngle * 180) / Math.PI;
-      const groundSpeed = Math.hypot(this.state.speed, this.state.lateralVelocity ?? 0);
-      accumulateDrift(this.drift, slipDeg, groundSpeed, onTrack, dt);
-
-      // How far from the centreline the car is running, as a share of the road — but weighted
-      // by how sideways it is at the time. Unweighted, a perfectly tidy lap that merely hugs the
-      // edge collected the full road-use reward without ever drifting, which is precisely the
-      // short-and-clean line this term was meant to discourage.
-      const halfWidth = Math.max(1, this.track.halfWidth);
-      const sideways = Math.min(1, Math.abs(slipDeg) / DRIFT_MIN_ANGLE_DEG);
-      this.roadUseSum += Math.min(1, Math.abs(closestAfter.offset) / halfWidth) * sideways;
-      this.roadUseSamples++;
     }
 
     const headingError = normalizeAngle(this.state.heading - closest.heading);
@@ -319,6 +310,25 @@ export class CarAgent {
       } else {
         this.stagnationTime += dt;
       }
+    }
+
+    if (this.objective === 'drift') {
+      const slipDeg = (dynResult.bodySlipAngle * 180) / Math.PI;
+      // Scored on track advanced, not distance travelled — accumulated here rather than earlier
+      // because `progressDelta` is what separates drifting down a road from spinning on the spot.
+      // The corner's direction decides whether the slide is going the right way for it.
+      const curvature = signedCurvatureAt(this.trackPath, closestAfter.index);
+      accumulateDrift(this.drift, slipDeg, progressDelta, onTrack, dt, curvature, forwardAlignment);
+
+      // How far from the centreline the car is running, as a share of the road — but weighted
+      // by how sideways it is at the time. Unweighted, a perfectly tidy lap that merely hugs the
+      // edge collected the full road-use reward without ever drifting, which is precisely the
+      // short-and-clean line this term was meant to discourage.
+      const halfWidth = Math.max(1, this.track.halfWidth);
+      const sideways = Math.min(1, Math.abs(slipDeg) / DRIFT_MIN_ANGLE_DEG)
+        * driftHeadingFactor(forwardAlignment);
+      this.roadUseSum += Math.min(1, Math.abs(closestAfter.offset) / halfWidth) * sideways;
+      this.roadUseSamples++;
     }
 
     this.accumulateDrivingQuality(
@@ -438,9 +448,15 @@ export class CarAgent {
     const momentumScore = progressDelta * 60;
 
     const backwardPenalty = (this.backwardSum / samples) * 600;
-    // Lighter than grip's: a drift line legitimately puts a car near the edge far more often,
-    // and the run ends within a couple of seconds off track anyway.
-    const offTrackPenalty = this.offTrackTime * 80;
+    /*
+     * Leaving the road is expensive again.
+     *
+     * Dropping this to a token amount (alongside removing the crash penalty) took away the last
+     * pressure to stay on the surface, so runs drifted wide and simply wore the cost. A drift
+     * that runs out of road is a failed drift, and the penalty grows with how far out the car
+     * went, not just how long — a wheel over the line is not the same as being in the scenery.
+     */
+    const offTrackPenalty = this.offTrackTime * 300 + this.worstBeyondEdge * 150;
 
     let fitness =
       driftPoints + engagement + roadUse + progressScore + momentumScore

@@ -8,7 +8,8 @@ import { calculatePerformance } from '../../utils/car-physics';
 /** Numeric vehicle parameters, described once and rendered in a loop. */
 type NumericSettingKey = Extract<
   keyof CarSettings,
-  'mass' | 'enginePower' | 'dragCoeff' | 'frontalArea' | 'tireGrip' | 'downforce' | 'finalDrive' | 'wheelbase'
+  'mass' | 'enginePower' | 'dragCoeff' | 'frontalArea' | 'tireGrip' | 'downforce' | 'finalDrive'
+  | 'wheelbase' | 'steeringLockDeg'
 >;
 
 interface SettingField {
@@ -44,6 +45,7 @@ export class CarSettingsComponent implements OnDestroy {
     { key: 'downforce', label: 'Downforce', unit: 'N', min: 0, max: 3000, step: 10 },
     { key: 'finalDrive', label: 'Final drive', unit: '', min: 2, max: 5, step: 0.01 },
     { key: 'wheelbase', label: 'Wheelbase', unit: 'm', min: 1.5, max: 3.5, step: 0.01 },
+    { key: 'steeringLockDeg', label: 'Steering lock', unit: '°', min: 15, max: 70, step: 1 },
   ];
 
   readonly drivetrains: Array<{ value: Drivetrain; label: string; hint: string }> = [
