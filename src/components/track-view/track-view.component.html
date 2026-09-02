@@ -244,6 +244,27 @@
             <label for="genCount">Generations</label>
             <input id="genCount" type="number" min="1" [(ngModel)]="aiConfig.generations" [disabled]="isTraining" />
           </div>
+          <div class="speed">
+            <label for="simSpeed">
+              <span>Speed</span>
+              <span class="num speed__value">{{ speedLabel }}</span>
+            </label>
+            <input
+              id="simSpeed"
+              type="range"
+              min="0"
+              [max]="speedSteps.length - 1"
+              step="1"
+              [ngModel]="speedIndex"
+              (ngModelChange)="setSpeedIndex($event)"
+            />
+            <p class="hint">
+              Adjustable while training. <strong>Max</strong> runs flat out; slower settings pace
+              the physics to real time so you can actually watch a car drive — useful with a
+              small population, which otherwise finishes before anything appears.
+            </p>
+          </div>
+
           <div class="param">
             <label for="mutRate">Mutation rate</label>
             <input id="mutRate" type="number" min="0" max="1" step="0.01" [(ngModel)]="aiConfig.mutationRate" [disabled]="isTraining" />

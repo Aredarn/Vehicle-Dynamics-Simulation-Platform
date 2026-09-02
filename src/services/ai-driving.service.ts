@@ -143,6 +143,24 @@ export class AIDrivingService {
   private stopRequested = false;
   private trainingActive = false;
 
+  /**
+   * How fast the simulation is allowed to run, as simulated seconds per real second.
+   *
+   * `Infinity` runs flat out, which is what a long training run wants — but with a handful of
+   * cars a generation is then over before anything is visible on screen. Pacing the physics to
+   * real time makes a small population watchable, and the value is read fresh on every step so
+   * it can be changed while a run is in progress.
+   */
+  private speed = Number.POSITIVE_INFINITY;
+
+  setTrainingSpeed(simulatedSecondsPerSecond: number) {
+    this.speed = simulatedSecondsPerSecond > 0 ? simulatedSecondsPerSecond : Number.POSITIVE_INFINITY;
+  }
+
+  get trainingSpeed(): number {
+    return this.speed;
+  }
+
   constructor(private racingLineOptimizer: RacingLineOptimizerService) {}
 
   stopTraining() {
@@ -380,7 +398,12 @@ export class AIDrivingService {
    * `simulateAgents` uses for large populations; one agent per call is cheap enough to just run
    * to completion, yielding occasionally so a long track doesn't block the UI.
    */
-  async runGenomeOnTrack(weights: number[], settings: CarSettings, trackModel: TrackModel): Promise<ModelRunResult> {
+  async runGenomeOnTrack(
+    weights: number[],
+    settings: CarSettings,
+    trackModel: TrackModel,
+    objective: TrainingObjective = 'grip'
+  ): Promise<ModelRunResult> {
     const track: TrackModel = { ...trackModel, points: trackModel.points.map(p => ({ ...p })) };
     const centerline = track.points;
     const trackLength = getTrackLength(centerline);
@@ -391,13 +414,38 @@ export class AIDrivingService {
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
     const steps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
 
-    const agent = new CarAgent(this.spawnGenome([...weights]), settings);
+    const agent = new CarAgent(this.spawnGenome([...weights]), settings, objective);
     agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
+
+    // Replay honours the same speed slider as training. At Max this runs flat out and only the
+    // finished line is drawn, which is what a bulk comparison wants; at a real-time setting the
+    // car is published as it goes, so a trained model can actually be watched driving instead of
+    // only leaving a line behind.
+    const runStart = performance.now();
+    let lastSnapshot = 0;
 
     for (let step = 0; step < steps && agent.state.alive; step++) {
       agent.update(dt);
-      if (step % 500 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+      const speed = this.speed;
+      if (Number.isFinite(speed)) {
+        const dueAt = runStart + ((step + 1) * dt * 1000) / speed;
+        let waitMs = dueAt - performance.now();
+        while (waitMs > 1) {
+          const now = performance.now();
+          if (now - lastSnapshot >= 40) {
+            this.populationSubject.next([agent]);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 16)));
+          waitMs = dueAt - performance.now();
+        }
+      } else if (step % 500 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
+
+    this.populationSubject.next([agent]);
 
     return {
       trajectory: agent.trajectory,
@@ -486,8 +534,33 @@ export class AIDrivingService {
     let sliceStart = performance.now();
     let lastSnapshot = 0;
 
+    // Wall-clock origin for paced playback. Each step advances the world by `dt`, so at a speed
+    // of N the step that has just finished should not complete before step*dt/N seconds have
+    // actually passed.
+    const runStart = performance.now();
+    let pacedSteps = 0;
+
     for (let step = 0; step < steps; step++) {
       if (this.stopRequested) break;
+
+      // Read the speed every step so the slider takes effect immediately, mid-generation.
+      const speed = this.speed;
+      if (Number.isFinite(speed)) {
+        const dueAt = runStart + (pacedSteps * dt * 1000) / speed;
+        let waitMs = dueAt - performance.now();
+        while (waitMs > 1 && !this.stopRequested) {
+          // Push the field while waiting, so a slow-motion run animates rather than jumping.
+          const now = performance.now();
+          if (now - lastSnapshot >= SNAPSHOT_INTERVAL_MS) {
+            this.populationSubject.next(agents);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 16)));
+          waitMs = dueAt - performance.now();
+        }
+        sliceStart = performance.now();
+      }
+      pacedSteps++;
 
       let anyActive = false;
 

@@ -93,6 +93,24 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   /** What the AI is being asked to learn. Grip is the existing behaviour, unchanged. */
   objective: TrainingObjective = 'grip';
 
+  /**
+   * Simulation speed, as a slider index into `speedSteps`.
+   *
+   * A small population finishes a generation faster than the eye can follow, so watching how a
+   * driver actually behaves needs the physics paced to real time. A large one is limited by
+   * compute instead, and wants to run flat out.
+   */
+  speedIndex = 5;
+
+  readonly speedSteps: Array<{ value: number; label: string }> = [
+    { value: 0.25, label: '¼×' },
+    { value: 0.5, label: '½×' },
+    { value: 1, label: '1×' },
+    { value: 2, label: '2×' },
+    { value: 5, label: '5×' },
+    { value: Number.POSITIVE_INFINITY, label: 'Max' },
+  ];
+
   readonly objectives: Array<{ value: TrainingObjective; label: string; blurb: string }> = [
     { value: 'grip', label: 'Grip', blurb: 'Fastest lap: the racing line, trail braking, and every tenth of grip spent going forward.' },
     { value: 'drift', label: 'Drift', blurb: 'Angle held at speed: points for a big controlled slide, nothing for a spin or a straight car.' },
@@ -1738,6 +1756,7 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
     this.trainingAgents = [];
     this.aiStats = { ...this.aiStats, active: true };
+    this.aiDrivingService.setTrainingSpeed(this.speedSteps[this.speedIndex].value);
     this.aiDrivingService.clearHistory();
 
     if (!this.track) return;
@@ -1797,6 +1816,19 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.requestRedraw();
   }
 
+  get speedLabel(): string {
+    return this.speedSteps[this.speedIndex]?.label ?? 'Max';
+  }
+
+  get isRealTimeSpeed(): boolean {
+    return Number.isFinite(this.speedSteps[this.speedIndex]?.value);
+  }
+
+  setSpeedIndex(index: number) {
+    this.speedIndex = Math.max(0, Math.min(this.speedSteps.length - 1, Math.round(Number(index) || 0)));
+    this.aiDrivingService.setTrainingSpeed(this.speedSteps[this.speedIndex].value);
+  }
+
   get objectiveBlurb(): string {
     return this.objectives.find(o => o.value === this.objective)?.blurb ?? '';
   }
@@ -1831,7 +1863,11 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.comparisonLines = [];
 
     for (const { model, color } of entries) {
-      const result = await this.aiDrivingService.runGenomeOnTrack(model.weights, model.carSettings, this.track!);
+      // A drift model must be replayed under the objective it was trained for, or its result
+      // is scored as a lap it was never trying to drive.
+      const result = await this.aiDrivingService.runGenomeOnTrack(
+        model.weights, model.carSettings, this.track!, model.objective ?? 'grip'
+      );
       this.comparisonResults = {
         ...this.comparisonResults,
         [model.id]: { lapTime: result.lapTime, progress: result.progress, completed: result.completed },

@@ -558,3 +558,32 @@ kbd {
 
   &.is-ahead { color: var(--success); }
 }
+
+/* ── Simulation speed ────────────────────────────────────────── */
+
+.speed {
+  margin-bottom: var(--sp-3);
+
+  label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    margin-bottom: 4px;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+  }
+
+  input[type='range'] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+
+  .hint { margin-top: 4px; }
+}
+
+.speed__value {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-1);
+}
