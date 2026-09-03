@@ -1,0 +1,478 @@
+/* Instrument panel overlaid on the canvas. Reads as a data readout, not a game HUD. */
+
+:host {
+  display: block;
+  pointer-events: none;
+}
+
+.hud {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-3);
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-overlay);
+  transition: border-color var(--transition);
+
+  &--off { border-color: var(--warning); }
+}
+
+.hud__block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: var(--sp-3);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+
+.hud__title {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ----- Speedometer ----- */
+
+.hud__dial {
+  position: relative;
+  width: 124px;
+  height: 124px;
+  flex-shrink: 0;
+}
+
+.dial {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.dial__track {
+  fill: none;
+  stroke: var(--surface-3);
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+
+.dial__fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+
+.dial__ticks line {
+  stroke: var(--text-3);
+  stroke-width: 1;
+
+  &.is-major { stroke: var(--text-2); stroke-width: 1.6; }
+}
+
+.dial__labels text {
+  fill: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.dial__needle {
+  stroke: var(--danger);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.dial__hub { fill: var(--text-2); }
+
+.dial__readout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(16px);
+  pointer-events: none;
+}
+
+.dial__speed {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-1);
+}
+
+.dial__unit {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ----- Lap timing ----- */
+
+.hud__timing { min-width: 132px; }
+
+.lap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.lap__label {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.lap__time {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-1);
+
+  &--sm { font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+}
+
+.lap--current .lap__time { font-size: 19px; }
+
+.delta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--danger);
+
+  &--ahead { color: var(--success); }
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.progress__bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+
+  span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 90ms linear;
+  }
+}
+
+.progress__pct {
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+  min-width: 28px;
+  text-align: right;
+}
+
+.status {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+
+  &--warn { color: var(--warning); font-weight: 600; }
+  &--good { color: var(--success); font-weight: 600; }
+}
+
+/* ----- Pedals / steering ----- */
+
+.hud__inputs {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.pedal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.pedal__label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.pedal__bar {
+  position: relative;
+  width: 12px;
+  height: 78px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.pedal__fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+
+  &--thr { background: var(--success); }
+  &--brk { background: var(--danger); }
+}
+
+.steer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-end;
+}
+
+.steer__track {
+  position: relative;
+  width: 76px;
+  height: 10px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.steer__centre {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-strong);
+}
+
+.steer__fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ----- g-g diagram ----- */
+
+.hud__gg { align-items: center; }
+
+.gg {
+  width: 86px;
+  height: 86px;
+}
+
+.gg__limit {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.gg__axis { stroke: var(--border-strong); stroke-width: 1; }
+
+.gg__dot { fill: var(--warning); }
+
+.gg__figures {
+  display: flex;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+
+  em {
+    font-style: normal;
+    margin-left: 2px;
+    color: var(--text-3);
+  }
+}
+
+/* ----- Tyre load / grip ----- */
+
+.hud__grip { min-width: 168px; }
+
+.axle,
+.transfer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.axle__label {
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  min-width: 34px;
+}
+
+.axle__bar,
+.transfer__bar {
+  position: relative;
+  flex: 1;
+  height: 7px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.axle__fill {
+  display: block;
+  height: 100%;
+  background: var(--success);
+
+  &.is-over { background: var(--danger); }
+}
+
+/* Drive split: the filled portion is torque through the front axle. */
+.drive__bar { background: var(--data-3); }
+
+.drive__front {
+  display: block;
+  height: 100%;
+  background: var(--data-1);
+}
+
+.transfer__bar { overflow: visible; }
+
+.transfer__split {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform: translateX(-1px);
+}
+
+.axle__val {
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+  min-width: 52px;
+  text-align: right;
+}
+
+.slip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slip__track {
+  position: relative;
+  flex: 1;
+  height: 7px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.slip__centre {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-strong);
+}
+
+.slip__fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--warning);
+
+  &.is-big { background: var(--danger); }
+}
+
+.flag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+
+  &--understeer { color: var(--danger); }
+  &--oversteer { color: var(--warning); }
+}
+
+/* ----- Derived figures ----- */
+
+.hud__figures { justify-content: center; min-width: 104px; }
+
+.fig {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.fig__k {
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.fig__v {
+  font-size: var(--fs-xs);
+  color: var(--text-1);
+}
+
+/* Narrow viewports: drop the least load-bearing panels rather than squeezing everything. */
+@media (max-width: 1180px) {
+  .hud__figures { display: none; }
+}
+
+@media (max-width: 980px) {
+  .hud__gg { display: none; }
+}
+
+/* ----- Drift score ----- */
+
+.hud__drift { min-width: 128px; }
+
+.drift__score {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-1);
+}
+
+.drift__meter {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.drift__fill {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+
+  &.is-live { background: var(--warning); }
+}
+
+.drift__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+}
+
+.drift__state {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}

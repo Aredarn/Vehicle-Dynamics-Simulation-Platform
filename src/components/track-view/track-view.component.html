@@ -18,7 +18,7 @@
 
     <div class="sidebar__body">
       <!-- Car -->
-      <app-car-settings *ngIf="activeTab === 'car'"></app-car-settings>
+      <app-car-settings *ngIf="activeTab === 'car'" [locked]="isDrift"></app-car-settings>
 
       <!-- Track -->
       <ng-container *ngIf="activeTab === 'track'">
@@ -209,6 +209,33 @@
             </button>
           </div>
 
+          <div class="objective">
+            <span class="eyebrow">What should it learn?</span>
+            <div class="segmented" role="group" aria-label="Training objective">
+              <button
+                *ngFor="let option of objectives"
+                type="button"
+                class="segmented__btn"
+                [class.is-active]="objective === option.value"
+                [attr.aria-pressed]="objective === option.value"
+                [disabled]="isTraining"
+                (click)="setObjective(option.value)"
+              >{{ option.label }}</button>
+            </div>
+            <p class="hint">{{ objectiveBlurb }}</p>
+            <p class="hint hint--locked" *ngIf="isDrift">
+              Drift locks the car to <strong>RWD + LSD with 60&deg; of steering lock</strong> —
+              your previous setup comes back when you switch to Grip.
+            </p>
+            <p class="hint" *ngIf="isDrift">
+              Drift needs <strong>far more generations than grip</strong>. The population learns
+              to drive the track first and only then starts adding angle, so a run stopped around
+              80 looks like it has just learned to grip. Expect the score to climb properly past
+              ~150. Starting from a saved model makes drift <em>worse</em>, not better — a grip
+              driver is deeply committed to not sliding.
+            </p>
+          </div>
+
           <div class="param">
             <label for="popSize">Population</label>
             <input id="popSize" type="number" min="4" [(ngModel)]="aiConfig.populationSize" [disabled]="isTraining" />
@@ -217,6 +244,27 @@
             <label for="genCount">Generations</label>
             <input id="genCount" type="number" min="1" [(ngModel)]="aiConfig.generations" [disabled]="isTraining" />
           </div>
+          <div class="speed">
+            <label for="simSpeed">
+              <span>Speed</span>
+              <span class="num speed__value">{{ speedLabel }}</span>
+            </label>
+            <input
+              id="simSpeed"
+              type="range"
+              min="0"
+              [max]="speedSteps.length - 1"
+              step="1"
+              [ngModel]="speedIndex"
+              (ngModelChange)="setSpeedIndex($event)"
+            />
+            <p class="hint">
+              Adjustable while training. <strong>Max</strong> runs flat out; slower settings pace
+              the physics to real time so you can actually watch a car drive — useful with a
+              small population, which otherwise finishes before anything appears.
+            </p>
+          </div>
+
           <div class="param">
             <label for="mutRate">Mutation rate</label>
             <input id="mutRate" type="number" min="0" max="1" step="0.01" [(ngModel)]="aiConfig.mutationRate" [disabled]="isTraining" />
@@ -248,8 +296,9 @@
 
           <div class="stat-grid">
             <div class="stat">
-              <div class="stat__label">Best lap</div>
-              <div class="stat__value">{{ aiStats.bestLapTime ? aiStats.bestLapTime.toFixed(2) : '—' }}<span class="stat__unit" *ngIf="aiStats.bestLapTime">s</span></div>
+              <div class="stat__label">{{ isDrift ? 'Best drift' : 'Best lap' }}</div>
+              <div class="stat__value" *ngIf="!isDrift">{{ aiStats.bestLapTime ? aiStats.bestLapTime.toFixed(2) : '—' }}<span class="stat__unit" *ngIf="aiStats.bestLapTime">s</span></div>
+              <div class="stat__value" *ngIf="isDrift">{{ aiStats.bestDriftScore ? (aiStats.bestDriftScore | number:'1.0-0') : '—' }}<span class="stat__unit" *ngIf="aiStats.bestDriftScore">pts</span></div>
             </div>
             <div class="stat">
               <div class="stat__label">Progress</div>
@@ -270,6 +319,99 @@
           </div>
         </section>
       </ng-container>
+      <!-- Drive -->
+      <ng-container *ngIf="activeTab === 'drive'">
+        <section class="section">
+          <h3 class="section__title">
+            <span>Drive It Yourself</span>
+            <span class="num section__meta">{{ trackLength }}</span>
+          </h3>
+
+          <p class="hint" *ngIf="!hasTrack">Build or load a track first, then come back here to drive it.</p>
+
+          <button
+            type="button"
+            class="btn drive__toggle"
+            [class.btn--ghost]="driveMode"
+            [disabled]="!hasTrack || isTraining"
+            (click)="toggleDriveMode()"
+          >
+            <app-icon [name]="driveMode ? 'stop' : 'play'" [size]="15"></app-icon>
+            <span>{{ driveMode ? 'Leave the car' : 'Take the wheel' }}</span>
+          </button>
+
+          <p class="hint" *ngIf="isTraining">Training is running — stop it before driving.</p>
+
+          <div class="keycaps" *ngIf="driveMode">
+            <div class="keycaps__row"><kbd>W</kbd><span>/</span><kbd>↑</kbd><span>Throttle</span></div>
+            <div class="keycaps__row"><kbd>S</kbd><span>/</span><kbd>↓</kbd><span>Brake</span></div>
+            <div class="keycaps__row"><kbd>A</kbd><kbd>D</kbd><span>Steer</span></div>
+            <div class="keycaps__row"><kbd>R</kbd><span>Restart lap</span></div>
+          </div>
+
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="followCam" (change)="toggleFollowCam()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Follow the car</span>
+          </label>
+
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="showPlayerLine" (change)="toggleShowPlayerLine()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Show my line</span>
+          </label>
+
+          <label class="toggle" *ngIf="driveMode">
+            <input type="checkbox" [checked]="steeringAid" (change)="toggleSteeringAid()" />
+            <span class="toggle__box"><app-icon name="check" [size]="12"></app-icon></span>
+            <span>Match lock to speed</span>
+          </label>
+          <p class="hint" *ngIf="driveMode">
+            A key is either off or full lock, and full lock at speed pushes the front tyres past
+            their peak so the car just washes wide. This caps what a press <em>asks for</em> —
+            it adds no grip. Turn it off for the raw mapping.
+          </p>
+
+          <button type="button" class="btn btn--ghost" *ngIf="driveMode" (click)="resetRun()">
+            <app-icon name="reset" [size]="15"></app-icon>
+            <span>Restart lap</span>
+          </button>
+        </section>
+
+        <section class="section" *ngIf="lapHistory.length">
+          <h3 class="section__title">
+            <span>My Laps</span>
+            <button type="button" class="btn btn--quiet btn--sm" (click)="clearLapHistory()">Clear</button>
+          </h3>
+
+          <ul class="laps">
+            <li class="laps__row laps__row--head">
+              <span>#</span><span>Time</span><span>vs {{ aiBestLap ? 'AI' : 'ref' }}</span>
+            </li>
+            <li class="laps__row" *ngFor="let lap of lapHistory; let i = index" [class.is-best]="lap.time === playerBestLap">
+              <span class="num">{{ lapHistory.length - i }}</span>
+              <span class="num">{{ lap.time | number: '1.3-3' }}s</span>
+              <span class="num laps__delta"
+                    [class.is-ahead]="(aiBestLap || estimatedLapTime) && lap.time < (aiBestLap || estimatedLapTime)">
+                {{ (aiBestLap || estimatedLapTime)
+                    ? ((lap.time - (aiBestLap || estimatedLapTime)) > 0 ? '+' : '') + ((lap.time - (aiBestLap || estimatedLapTime)) | number: '1.2-2')
+                    : '—' }}
+              </span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="section">
+          <h3 class="section__title"><span>How It's Judged</span></h3>
+          <p class="hint">
+            Your car runs the <strong>same physics and the same track limits as the AI</strong> —
+            identical grip, weight transfer and friction circle, stepped at the same fixed rate.
+            Run more than {{ 8 }} m off the road, or spend too long off it, and the run ends,
+            exactly as an agent's would. Cutting a corner earns no extra progress.
+          </p>
+        </section>
+      </ng-container>
+
     </div>
   </aside>
 
@@ -317,9 +459,22 @@
         Import a track image from the Track panel, then trace it
       </p>
 
-      <p class="viewport-hint viewport-hint--corner" *ngIf="hasTrack">
+      <p class="viewport-hint viewport-hint--corner" *ngIf="hasTrack && !driveMode">
         Scroll to zoom · Alt + drag to pan
       </p>
+
+      <div class="driver-hud-slot" *ngIf="driveMode && playerTelemetry">
+        <app-driver-hud
+          [telemetry]="playerTelemetry"
+          [aiBestLap]="aiBestLap"
+          [referenceLap]="estimatedLapTime"
+          [bestLap]="playerBestLap"
+          [lastLap]="lastLap"
+          [drift]="isDrift"
+          [aiBestDrift]="aiStats.objective === 'drift' ? aiStats.bestDriftScore : 0"
+          [bestDrift]="playerBestDrift"
+        ></app-driver-hud>
+      </div>
     </div>
 
     <section class="telemetry" [class.is-collapsed]="!telemetryOpen">

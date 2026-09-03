@@ -1,14 +1,15 @@
 import { CommonModule, DecimalPipe } from '@angular/common';
-import { Component, OnDestroy } from '@angular/core';
+import { Component, Input, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
+import { CarSettings, CarSettingsService, Drivetrain, Differential } from '../../services/car-settings.service';
 import { calculatePerformance } from '../../utils/car-physics';
 
 /** Numeric vehicle parameters, described once and rendered in a loop. */
 type NumericSettingKey = Extract<
   keyof CarSettings,
-  'mass' | 'enginePower' | 'dragCoeff' | 'frontalArea' | 'tireGrip' | 'downforce' | 'finalDrive' | 'wheelbase'
+  'mass' | 'enginePower' | 'dragCoeff' | 'frontalArea' | 'tireGrip' | 'downforce' | 'finalDrive'
+  | 'wheelbase' | 'steeringLockDeg'
 >;
 
 interface SettingField {
@@ -28,6 +29,9 @@ interface SettingField {
   styleUrl: './car-settings.component.scss'
 })
 export class CarSettingsComponent implements OnDestroy {
+  /** Drift mode fixes the drivetrain, so the pickers are shown but not editable. */
+  @Input() locked = false;
+
   settings!: CarSettings;
   presets = this.settingsService.presets;
   performance = { acceleration: 0, topSpeed: 0 };
@@ -41,6 +45,18 @@ export class CarSettingsComponent implements OnDestroy {
     { key: 'downforce', label: 'Downforce', unit: 'N', min: 0, max: 3000, step: 10 },
     { key: 'finalDrive', label: 'Final drive', unit: '', min: 2, max: 5, step: 0.01 },
     { key: 'wheelbase', label: 'Wheelbase', unit: 'm', min: 1.5, max: 3.5, step: 0.01 },
+    { key: 'steeringLockDeg', label: 'Steering lock', unit: '°', min: 15, max: 70, step: 1 },
+  ];
+
+  readonly drivetrains: Array<{ value: Drivetrain; label: string; hint: string }> = [
+    { value: 'fwd', label: 'FWD', hint: 'Front axle drives and steers, so power pushes the nose wide' },
+    { value: 'rwd', label: 'RWD', hint: 'Rear axle drives; power rotates the car and can step the back out' },
+    { value: 'awd', label: 'AWD', hint: 'Both axles share the load — most traction, least drama' },
+  ];
+
+  readonly differentials: Array<{ value: Differential; label: string; hint: string }> = [
+    { value: 'open', label: 'Open', hint: 'Equal torque both sides, so the unloaded inside wheel spins first' },
+    { value: 'lsd', label: 'LSD', hint: 'Ties the driven wheels together: more exit traction, more stability' },
   ];
 
   private settingsSub!: Subscription;

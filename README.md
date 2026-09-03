@@ -17,9 +17,12 @@ learn to drive that track as fast as it can, using trail braking and a proper ra
 | Drag coefficient | – | Aerodynamic drag |
 | Frontal area | m² | Aerodynamic drag |
 | Tire grip | μ | The whole friction budget — braking, traction and cornering |
-| Downforce | N | Extra tyre load, so more grip without more mass |
+| Downforce | N @ 200 km/h | Aerodynamic load, growing with the square of speed |
 | Final drive ratio | – | Scales drive force at the wheels |
-| Wheelbase | m | Weight transfer geometry, and the drawn size of the car |
+| Wheelbase | m | Weight transfer geometry, yaw inertia, and the drawn size of the car |
+| Drivetrain | FWD / RWD / AWD | Which axle gets the power — and so which end lets go first |
+| Steering lock | ° | How much countersteer is available — decides whether a slide can be caught |
+| Differential | Open / LSD | How the driven axle shares torque between its two wheels |
 
 <img width="1919" height="1028" alt="VDSP screenshot" src="https://github.com/user-attachments/assets/f71a047a-a172-433f-b11a-5ba0bc3d0ecd" />
 
@@ -118,15 +121,72 @@ F_lat_max = √(1 − (F_long / (μ·Fz))²) · μ·Fz          per axle
 a_lat_max = (F_lat_front + F_lat_rear) / m
 ```
 
-**Rotation** — the steering command asks for a yaw rate, and grip decides whether
-the car can deliver it:
+**Aerodynamics** — downforce is not a constant. It grows with the square of speed,
+which is why a fast car corners far harder in a quick corner than a slow one:
 
 ```
-ω = clamp(steer · 2.2 rad/s,  ±a_lat_max / v)
-a_x' = a_x · √(1 − (a_lat_used / a_lat_max)²)
+F_down = downforce₂₀₀ · (v / 55.6)²      (the setting is the figure at 200 km/h)
 ```
 
-Ask for more rotation than grip allows and the car simply understeers instead.
+**Rotation — slip angles** — the car does not simply point where it is steered. It
+carries a sideways velocity as well as a forward one, so where it *points* and where
+it *goes* can differ. That difference is what a slide is:
+
+```
+δ       = steer · 26°                    (a real steering rack, not a yaw request)
+α_front = atan2(v_y + a·ω, v_x) − δ
+α_rear  = atan2(v_y − b·ω, v_x)
+```
+
+Each axle's lateral force comes from its slip angle through a saturating tyre curve:
+grip rises steeply, peaks near 6.5°, then falls away to a sliding plateau.
+
+```
+F_y = −μ·Fz · sin(1.9 · atan(9.5 · α))   blended into 0.78·μ·Fz past ~40°
+```
+
+Those forces then move the car:
+
+```
+a_y = (F_y,front·cos δ + F_y,rear) / m − ω·v_x
+ω̇  = (a·F_y,front·cos δ − b·F_y,rear) / Iz     Iz = m·(0.46·L)²
+```
+
+This is what makes it behave like a car. Ask the front for more than it has and it
+runs wide — **understeer**. Spend the rear's grip on throttle and the friction ellipse
+leaves it nothing to corner with, so the back steps out — **oversteer**, which you
+catch with opposite lock or you spin. The plateau at the end of the tyre curve is what
+makes a slide catchable rather than terminal: a fully sideways tyre is still skidding
+against the road, not sliding on ice.
+
+**Drivetrain and differential** — engine torque goes to whichever axle the layout drives, and
+each axle is capped by what it can actually put down:
+
+```
+FWD  front 100%        RWD  rear 100%        AWD  front 40% / rear 60%
+```
+
+Because a driven axle spends grip on traction that it can no longer spend on cornering, the
+layout decides which end runs out first. Get greedy with the throttle mid-corner and a FWD car
+pushes wide, a RWD car rotates, and an AWD car does a little of both.
+
+Cornering also unloads the inside wheels, and that is where the differential earns its keep:
+
+```
+inner = Fz/2 − ΔFz_lat/2                 outer = Fz/2 + ΔFz_lat/2
+usable = μ · (2·inner + lock·(outer − inner))      lock: 0 = open, 0.6 = LSD
+```
+
+An open diff feeds both wheels equal torque, so the light inside wheel spins first and caps the
+axle at twice *its* grip. An LSD lets the loaded outer wheel take up the slack. An LSD also
+resists the wheel-speed difference a corner demands, which shows up as a yaw moment opposing
+the turn.
+
+The dynamics run in 8 substeps per frame. Tyre forces are stiff, and a single step at
+30 Hz overshoots once they saturate, spiralling into a spin no input can recover.
+Below 2 m/s a slip angle carries no information, so the model blends into plain
+steering geometry (ω = v·tan δ / L) — which is also why the car cannot pirouette on
+the spot.
 
 ---
 
@@ -156,10 +216,10 @@ reference lap time = Σ ds / v_avg
 
 ### 3. The Driver — Neural Network
 
-A small feed-forward network: **14 inputs → 12 hidden (tanh) → 3 outputs**, giving
-`(14+1)·12 + (12+1)·3 = 219` weights. That weight array *is* the genome.
+A small feed-forward network: **15 inputs → 12 hidden (tanh) → 3 outputs**, giving
+`(15+1)·12 + (12+1)·3 = 231` weights. That weight array *is* the genome.
 
-| Inputs (14) | |
+| Inputs (15) | |
 |---|---|
 | 5 distance sensors | rays at −43°, −20°, 0°, +20°, +43° |
 | current speed | normalised to top speed |
@@ -168,6 +228,7 @@ A small feed-forward network: **14 inputs → 12 hidden (tanh) → 3 outputs**, 
 | lap progress | how far around the lap |
 | yaw rate | how fast the car is rotating |
 | grip usage | how close the tyres are to the limit |
+| **body slip angle** | how sideways the car is — signed, saturating at 60° |
 | bias | constant 1 |
 
 | Outputs (3) | Range |
@@ -217,6 +278,109 @@ Two deliberate choices worth knowing:
 
 ---
 
+### 4b. Two Things To Learn — Grip or Drift
+
+The reward above is the **Grip** objective: fastest lap. **Drift** is a separate objective with
+its own scoring, chosen before training starts.
+
+The grip reward cannot be reused for drift, and not by a small margin — it penalises yaw beyond
+what the corner's curvature implies, and penalises carrying more speed than the corner supports.
+Those two terms describe a drift almost exactly, so a drift agent trained on the grip reward
+would be punished precisely for succeeding.
+
+A drift run is scored on angle held at speed:
+
+```
+quality = 0                            below 15°            (not drifting)
+        = ramps 0 → 1  between 15° and 45°                  (committed slide)
+        = falls 1 → 0  between 45° and 70°                  (spinning, not drifting)
+
+points += quality · metresOfTrackAdvanced · multiplier      on track only
+multiplier = 1 → 2 as a slide is held, reset if it drops out for 0.35 s
+```
+
+Credit also depends on **where the nose points**. Full credit while the car is facing within
+~49° of the way the road goes, fading to nothing by ~84°. This is what separates drifting from
+looping: points are earned per metre of track advanced, so a car spiralling slowly along a
+straight holds maximum angle for *every* metre it covers — the best possible points-per-metre,
+which no honest lap can match, because a real lap has straights where the car is not sideways.
+The difference is the nose. Through a drift it keeps pointing broadly down the road; through a
+loop it sweeps across and back up the track. Over the same 300 m at the same 45°, a drift scores
+200 and a loop 45.
+
+Credit depends on *where* the slide happens and *which way* it goes. A corner drifted the right
+way scores in full; the same angle held the wrong way through that corner scores 0.15; a slide
+down a straight scores 0.35. Without this, a layout that is two-thirds straight could be farmed
+by sliding one way along the straights and never dealing with a corner at all — which is exactly
+what kept being bred, and why a car would slide beautifully in one direction and then run out of
+road at the first corner going the other way. Linking a slide into the opposite direction pays a
+bonus, because that is the hard part of drifting a course.
+
+**Steering lock decides whether any of this is possible.** With a road car's 26°, a slide past
+about 30° cannot be caught by *any* input — measured, the car spins every time and ends up
+travelling backwards. At 65° the same slide is caught and the car drives away at 112 km/h. Real
+drift cars fit modified knuckles for exactly this reason, so selecting Drift fits them: RWD, LSD
+and 60° of lock.
+
+Points come from the metres of **track** the car covers, not the metres it travels. Those are the
+same thing when drifting down a road and completely different when spinning on the spot: a donut
+covers plenty of ground, advances nothing, and holds a constant angle that also maxes the streak
+multiplier. Scoring progress instead of distance makes donuts worthless without needing a rule
+that special-cases them — the same 45° held for 20 seconds is worth **836 points down the road
+and 11 in a donut** — and it still rewards speed, since a faster car covers more track per
+second.
+
+The upper falloff is what stops the optimizer discovering that a permanent spin scores highest;
+the on-track requirement stops it scoring by spinning in the run-off. Everything about *driving
+the course* is retained — progress round the lap, facing forward, and identical track limits —
+so a drift lap and a grip lap on the same layout are held to the same standard.
+
+Fitness is dominated by the drift points, and every other term is gated on actually being
+sideways:
+
+```
+fitness = 40 · driftPoints                    the whole point
+        + 2500 · engagement · √progress       shaping across the 0-15° dead band
+        + 3500 · roadUse   · √progress        width used *while sideways*
+        + 2200 · progress · (0.25 + 0.75·engagement)
+        + 3000 · driftTimeFraction            if the lap was completed
+```
+
+Running out of road is expensive: `offTrackTime · 300 + furthestPastTheEdge · 150`, so a big
+excursion costs far more than putting a wheel over the line, and a drift that ends in the scenery
+is a failed drift.
+
+**There is no crash penalty**, unlike Grip — and that single difference decides whether any of
+this is learnable. Grip's penalty is right for grip: a crashed lap is a failed lap. Applied to
+drift it inverted the objective. Measured over 400 random policies, agents that actually slid
+averaged **−1633** fitness (they died essentially every time, taking a ~1450 penalty) while
+agents that pottered around gripping and survived averaged **+15**. At the exact point where the
+optimizer decides what to pursue, it was being told that going sideways is catastrophic and
+gripping is safe, so it learned to grip. With the penalty removed and the shaping gated on
+√progress rather than progress — an agent that spins off at 10% of the lap otherwise keeps only
+a tenth of its shaping — the same measurement reads **+75 for sliding against +65 for
+surviving**, and a population starts drifting in its first generation instead of never.
+
+Crashing needs no penalty because it is already self-punishing: a spun car banks no more points,
+and points are the whole score. Staying alive pays by giving you longer to earn.
+
+Three of those exist because of what happens without them. With progress and a flat completion
+bonus paying 14000 for a tidy lap against a few hundred for the best drifting found, the
+optimizer correctly learned to **stop drifting** — a driver evolved for grip scored identically
+to one evolved for drift. Ungated, the road-use term was collected in full by a clean lap that
+merely hugged the edge. And the dead band below 15° had no gradient at all, so a car sliding at
+9° had no way of discovering that 10° was better.
+
+The network is also given **body slip angle** as an input. Under the old kinematic physics slip
+was always zero so there was nothing to feed; without it the network could not perceive the one
+quantity a drift is scored on. Adding it took the genome from 219 to 231 weights — models saved
+before are widened automatically with zero weights for the new input, so they drive exactly as
+they did.
+
+Selecting Drift locks the car to **RWD + LSD**; your previous drivetrain is restored when you
+switch back. Saved models record which objective they were trained for, so a drift model is
+never silently compared against a grip one.
+
 ### 5. Evolution
 
 Each generation of population `P` is rebuilt as:
@@ -252,6 +416,15 @@ search has to stay local to work.
 
 The best genome ever seen is always carried forward, so the champion can never be
 lost.
+
+**Ranking follows the objective.** For Grip, completing the lap is an absolute tie-break —
+finishing *is* the goal, and the reward already scores a finisher above a non-finisher, so the
+two agree. For Drift they disagree, and letting completion win overrode the objective entirely:
+a car that completed a lap without ever going sideways outranked one that drifted superbly and
+ran out of road. The first agent to finish became champion, displaced the far better drifter
+from the hall of fame, and could never be displaced back — because the drifter does not finish.
+The population was then bred toward completing laps rather than drifting. Drift runs are
+therefore ranked on fitness alone, which already accounts for finishing.
 
 ---
 

@@ -3,6 +3,7 @@ import {
   normalizeAngle,
   closestPointOnPath,
   closestPointOnPathNear,
+  signedCurvatureAt,
 } from '../utils/track-utils';
 import { TrackModel, distanceBeyondEdge, rayDistanceToEdge } from '../utils/track-geometry';
 import { CarSettings } from '../services/car-settings.service';
@@ -13,10 +14,30 @@ import {
   getDrivingCharacteristics,
   stepVehicleDynamics,
   DrivingCharacteristics,
+  TRACK_LIMITS,
+  offTrackGripMultiplier,
 } from '../utils/car-physics';
 import { runPolicy } from '../utils/neural-policy';
+import {
+  TrainingObjective,
+  DriftScoreState,
+  createDriftScoreState,
+  accumulateDrift,
+  driftEngagement,
+  driftTimeFraction,
+  driftHeadingFactor,
+  DRIFT_MIN_ANGLE_DEG,
+} from '../utils/drift-scoring';
 
-export const AI_INPUT_COUNT = 14;
+/**
+ * 15 inputs. The fifteenth is body slip angle, added once the physics gained a slip-angle model.
+ *
+ * Under the old kinematic yaw model heading and velocity were the same variable, so slip was
+ * always exactly zero and there was nothing to feed. Now the car can genuinely be sideways —
+ * and without this input the network could not perceive the one quantity a drift is scored on,
+ * nor the difference between a tidy corner and the back stepping out. It was driving blind.
+ */
+export const AI_INPUT_COUNT = 15;
 export const AI_HIDDEN_SIZE = 12;
 
 /** Record one trajectory point per N simulation steps (rendering needs far less than 30Hz). */
@@ -31,6 +52,8 @@ export interface AgentGenome {
   maxProgress: number;
   progressRatio: number;
   completedLap: boolean;
+  /** Total drift points. Zero for grip runs, which are ranked on lap time instead. */
+  driftScore: number;
 }
 
 export class CarAgent {
@@ -40,6 +63,7 @@ export class CarAgent {
     heading: 0,
     speed: 0,
     yawRate: 0,
+    lateralVelocity: 0,
     alive: true,
     distance: 0,
     lapTime: 0,
@@ -61,6 +85,8 @@ export class CarAgent {
   private stagnationTime = 0;
   private lastFrontUsage = 0;
   private lastRearUsage = 0;
+  /** Body slip from the previous step — the feedback a driver uses to hold or catch a slide. */
+  private lastBodySlip = 0;
   private lastBeyondEdge: number | null = null;
   private stepIndex = 0;
 
@@ -75,7 +101,19 @@ export class CarAgent {
   private projectionIndex = 0;
   private lastProjection: ReturnType<typeof closestPointOnPathNear> | null = null;
 
-  constructor(public genome: AgentGenome, private settings: CarSettings) {
+  /** What this agent is being scored for. Grip is the default and is unchanged by drift mode. */
+  private drift: DriftScoreState = createDriftScoreState();
+  /** How much of the road's width the car used, averaged over the run. Drift lines are wide. */
+  private roadUseSum = 0;
+  private roadUseSamples = 0;
+  /** Furthest the car ever strayed past the edge (m), so a big excursion costs more than a nudge. */
+  private worstBeyondEdge = 0;
+
+  constructor(
+    public genome: AgentGenome,
+    private settings: CarSettings,
+    public objective: TrainingObjective = 'grip'
+  ) {
     this.driving = getDrivingCharacteristics(settings);
     const perf = calculatePerformance(settings);
     this.maxSpeed = Math.max(8, perf.topSpeed / 3.6);
@@ -95,6 +133,7 @@ export class CarAgent {
     this.stagnationTime = 0;
     this.lastFrontUsage = 0;
     this.lastRearUsage = 0;
+    this.lastBodySlip = 0;
     this.lastBeyondEdge = null;
     this.stepIndex = 0;
     this.overspeedSum = 0;
@@ -106,6 +145,10 @@ export class CarAgent {
     this.qualitySamples = 0;
     this.projectionIndex = 0;
     this.lastProjection = null;
+    this.drift = createDriftScoreState();
+    this.roadUseSum = 0;
+    this.roadUseSamples = 0;
+    this.worstBeyondEdge = 0;
 
     const start = this.trackPath[0] ?? { x: 0, y: 0, heading: 0, s: 0 };
     this.state = {
@@ -114,6 +157,7 @@ export class CarAgent {
       heading: start.heading,
       speed: 0,
       yawRate: 0,
+      lateralVelocity: 0,
       alive: true,
       distance: 0,
       lapTime: 0,
@@ -127,6 +171,7 @@ export class CarAgent {
     this.genome.maxProgress = 0;
     this.genome.progressRatio = 0;
     this.genome.completedLap = false;
+    this.genome.driftScore = 0;
   }
 
   update(dt: number) {
@@ -144,6 +189,8 @@ export class CarAgent {
     const progressNorm = this.trackLength > 0 ? closest.s / this.trackLength : 0;
     const yawRateNorm = this.clamp(this.state.yawRate / 3, -1, 1);
     const slipNorm = this.clamp(Math.max(this.lastFrontUsage, this.lastRearUsage), 0, 1.5) / 1.5;
+    // Signed, and saturating at 60 degrees — beyond that the car is spinning, not driving.
+    const bodySlipNorm = this.clamp(this.lastBodySlip / (Math.PI / 3), -1, 1);
     const inputs = [
       ...sensors,
       speedNorm,
@@ -152,6 +199,7 @@ export class CarAgent {
       progressNorm,
       yawRateNorm,
       slipNorm,
+      bodySlipNorm,
       1,
     ];
 
@@ -167,7 +215,7 @@ export class CarAgent {
       this.track,
       this.driving.carRadius
     );
-    const gripMultiplier = this.computeGripMultiplier(beyondEdgeBefore);
+    const gripMultiplier = offTrackGripMultiplier(beyondEdgeBefore);
     const prevX = this.state.x;
     const prevY = this.state.y;
 
@@ -181,6 +229,7 @@ export class CarAgent {
     );
     this.lastFrontUsage = dynResult.frontUsage;
     this.lastRearUsage = dynResult.rearUsage;
+    this.lastBodySlip = dynResult.bodySlipAngle;
     const distMoved = Math.hypot(this.state.x - prevX, this.state.y - prevY);
 
     this.state.lapTime += dt;
@@ -209,6 +258,7 @@ export class CarAgent {
     );
     const onTrack = beyondEdgeAfter <= 0.01;
     this.lastBeyondEdge = beyondEdgeAfter;
+    this.worstBeyondEdge = Math.max(this.worstBeyondEdge, beyondEdgeAfter);
 
     if (!onTrack) {
       this.offTrackTime += dt;
@@ -224,10 +274,9 @@ export class CarAgent {
     // every segment on the next step and was being scored as a crash. That made finishing a
     // knife-edge — the car had to stop inside a few metres of the end rather than drive over it,
     // so laps were never completed and the whole lap-time incentive stayed dormant.
-    const FINISH_TOLERANCE = 6; // meters
     const nearFinishLine = this.trackLength > 0
       && this.maxProgress >= this.trackLength * 0.85
-      && Math.max(this.maxProgress, closestAfter.s) >= this.trackLength - FINISH_TOLERANCE;
+      && Math.max(this.maxProgress, closestAfter.s) >= this.trackLength - TRACK_LIMITS.finishToleranceMetres;
 
     if (nearFinishLine && forwardAlignment > 0.3) {
       this.maxProgress = this.trackLength;
@@ -239,8 +288,7 @@ export class CarAgent {
       return;
     }
 
-    const HARD_CUTOFF_DISTANCE = 8; // meters past the edge — clearly in the barrier, not a wide exit
-    if (beyondEdgeAfter > HARD_CUTOFF_DISTANCE || this.offTrackTime >= this.driving.offTrackGraceSeconds) {
+    if (beyondEdgeAfter > TRACK_LIMITS.hardCutoffMetres || this.offTrackTime >= this.driving.offTrackGraceSeconds) {
       this.state.alive = false;
       this.genome.alive = false;
     }
@@ -252,9 +300,8 @@ export class CarAgent {
       // later point on the centerline than the car really earned, rewarding illegitimate
       // corner-cutting as if it were genuine progress. The slack factor still lets a real
       // racing line (legitimately shorter than the raw centerline) advance a bit faster.
-      const PROGRESS_SLACK = 1.4;
       const rawCandidate = Math.max(this.maxProgress, closestAfter.s);
-      const progressCandidate = Math.min(rawCandidate, this.maxProgress + distMoved * PROGRESS_SLACK);
+      const progressCandidate = Math.min(rawCandidate, this.maxProgress + distMoved * TRACK_LIMITS.progressSlack);
       if (progressCandidate > this.maxProgress + 0.02) {
         progressDelta = progressCandidate - this.maxProgress;
         this.lastProgressS = this.maxProgress;
@@ -263,6 +310,25 @@ export class CarAgent {
       } else {
         this.stagnationTime += dt;
       }
+    }
+
+    if (this.objective === 'drift') {
+      const slipDeg = (dynResult.bodySlipAngle * 180) / Math.PI;
+      // Scored on track advanced, not distance travelled — accumulated here rather than earlier
+      // because `progressDelta` is what separates drifting down a road from spinning on the spot.
+      // The corner's direction decides whether the slide is going the right way for it.
+      const curvature = signedCurvatureAt(this.trackPath, closestAfter.index);
+      accumulateDrift(this.drift, slipDeg, progressDelta, onTrack, dt, curvature, forwardAlignment);
+
+      // How far from the centreline the car is running, as a share of the road — but weighted
+      // by how sideways it is at the time. Unweighted, a perfectly tidy lap that merely hugs the
+      // edge collected the full road-use reward without ever drifting, which is precisely the
+      // short-and-clean line this term was meant to discourage.
+      const halfWidth = Math.max(1, this.track.halfWidth);
+      const sideways = Math.min(1, Math.abs(slipDeg) / DRIFT_MIN_ANGLE_DEG)
+        * driftHeadingFactor(forwardAlignment);
+      this.roadUseSum += Math.min(1, Math.abs(closestAfter.offset) / halfWidth) * sideways;
+      this.roadUseSamples++;
     }
 
     this.accumulateDrivingQuality(
@@ -274,14 +340,6 @@ export class CarAgent {
       forwardAlignment
     );
     this.updateFitness(progressDelta);
-  }
-
-  private computeGripMultiplier(beyondEdge: number): number {
-    if (beyondEdge <= 0) return 1;
-    const transition = 0.5; // meters over which grip ramps down to the off-track floor
-    const floor = 0.35;
-    const t = this.clamp(beyondEdge / transition, 0, 1);
-    return 1 - t * (1 - floor);
   }
 
   private accumulateDrivingQuality(
@@ -328,6 +386,105 @@ export class CarAgent {
   }
 
   private updateFitness(progressDelta: number) {
+    if (this.objective === 'drift') {
+      this.updateDriftFitness(progressDelta);
+      return;
+    }
+    this.updateGripFitness(progressDelta);
+  }
+
+  /**
+   * Drift scoring.
+   *
+   * The grip reward is not reusable here, and not by a small margin: it penalises yaw beyond
+   * what the corner's curvature implies, and penalises carrying more speed than the corner
+   * supports. Those two terms describe a drift almost exactly, so a drift agent trained on the
+   * grip reward would be punished precisely for succeeding.
+   *
+   * What survives from the grip reward is everything about *driving the course*: progress round
+   * the lap, staying on the road, and facing the right way. Track limits are identical, so a
+   * drift lap and a grip lap on the same layout are held to the same standard.
+   */
+  private updateDriftFitness(progressDelta: number) {
+    const progressRatio = this.trackLength > 0 ? this.maxProgress / this.trackLength : 0;
+    const samples = Math.max(1, this.qualitySamples);
+
+    /*
+     * Angle held at speed has to dominate, by a wide margin.
+     *
+     * It previously sat alongside a progress term and a flat completion bonus that between them
+     * paid 14000 for simply completing a tidy lap, against a few hundred for the best drifting
+     * the optimizer had found. So it correctly learned to stop drifting: a driver evolved for
+     * grip scored identically to one evolved for drift. Progress is now a modest term that gets
+     * the car round the course, and everything above it is earned sideways.
+     */
+    const driftPoints = this.drift.score * 40;
+
+    /*
+     * Shaping across the dead band below the scoring angle, so there is a gradient to follow
+     * before any points exist.
+     *
+     * Gated on the square root of progress rather than progress itself. Multiplying by progress
+     * directly meant an agent that slid and spun off at 10% of the lap kept only a tenth of its
+     * shaping, so early sliding — the behaviour this is meant to encourage — was still worth
+     * less than pottering round intact. The root keeps the gate (a car doing donuts on the start
+     * line goes nowhere and earns nearly nothing) while paying an early slider three times more.
+     */
+    const reach = Math.sqrt(progressRatio);
+    const engagement = driftEngagement(this.drift) * 2500 * reach;
+
+    // Using the width of the road *while sideways* is part of drifting. Without this the
+    // shortest, tidiest line scored the same as a committed one, which is exactly the line the
+    // optimizer kept breeding.
+    const roadUse = this.roadUseSamples > 0
+      ? (this.roadUseSum / this.roadUseSamples) * 3500 * reach
+      : 0;
+
+    // Progress is gated on actually being sideways. A clean, tidy lap still earns the floor —
+    // enough of a gradient to learn to drive the course at all — but nothing like the full
+    // amount, so completing a lap cleanly can never out-score drifting one.
+    const engagementRatio = driftEngagement(this.drift);
+    const progressScore = progressRatio * 2200 * (0.25 + 0.75 * engagementRatio);
+    const momentumScore = progressDelta * 60;
+
+    const backwardPenalty = (this.backwardSum / samples) * 600;
+    /*
+     * Leaving the road is expensive again.
+     *
+     * Dropping this to a token amount (alongside removing the crash penalty) took away the last
+     * pressure to stay on the surface, so runs drifted wide and simply wore the cost. A drift
+     * that runs out of road is a failed drift, and the penalty grows with how far out the car
+     * went, not just how long — a wheel over the line is not the same as being in the scenery.
+     */
+    const offTrackPenalty = this.offTrackTime * 300 + this.worstBeyondEdge * 150;
+
+    let fitness =
+      driftPoints + engagement + roadUse + progressScore + momentumScore
+      - backwardPenalty - offTrackPenalty;
+
+    /*
+     * No crash penalty here, unlike grip.
+     *
+     * Grip's penalty is right for grip: a crashed lap is a failed lap. For drift it inverted the
+     * whole objective. Measured over 400 random policies, agents that actually slid averaged
+     * -1633 fitness (they died essentially every time, taking a ~1450 penalty), while agents
+     * that pottered around gripping and survived averaged +15. At the very point where the
+     * optimizer decides what to pursue, it was being told that going sideways is catastrophic
+     * and that gripping is safe — so it learned to grip, which is exactly what it kept doing.
+     *
+     * Crashing needs no penalty here because it is already self-punishing: a spun car banks no
+     * more points, and points are the entire score. Staying alive is rewarded by having longer
+     * to earn, rather than by avoiding a cliff.
+     */
+
+    if (this.completedLap) {
+      fitness += 3000 * driftTimeFraction(this.drift, this.state.lapTime);
+    }
+
+    this.commitGenome(fitness, progressRatio);
+  }
+
+  private updateGripFitness(progressDelta: number) {
     const progressRatio = this.trackLength > 0 ? this.maxProgress / this.trackLength : 0;
 
     const progressScore = progressRatio * 10000;
@@ -388,6 +545,10 @@ export class CarAgent {
       fitness -= 800;
     }
 
+    this.commitGenome(fitness, progressRatio);
+  }
+
+  private commitGenome(fitness: number, progressRatio: number) {
     this.genome.fitness = fitness;
     this.genome.distance = this.state.distance;
     this.genome.lapTime = this.state.lapTime;
@@ -395,6 +556,7 @@ export class CarAgent {
     this.genome.maxProgress = this.maxProgress;
     this.genome.progressRatio = progressRatio;
     this.genome.completedLap = this.completedLap;
+    this.genome.driftScore = this.drift.score;
   }
 
   private sampleOptimalSpeedAtS(targetS: number): number | null {

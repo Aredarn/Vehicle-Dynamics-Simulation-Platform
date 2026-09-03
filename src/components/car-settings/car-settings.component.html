@@ -26,6 +26,43 @@
 </section>
 
 <section class="section">
+  <h3 class="section__title">
+    <span>Drivetrain</span>
+    <span class="section__meta" *ngIf="locked">locked by Drift</span>
+  </h3>
+
+  <div class="segmented" role="group" aria-label="Drivetrain layout">
+    <button
+      *ngFor="let option of drivetrains"
+      type="button"
+      class="segmented__btn"
+      [class.is-active]="settings.drivetrain === option.value"
+      [attr.aria-pressed]="settings.drivetrain === option.value"
+      [disabled]="locked"
+      (click)="updateSetting('drivetrain', option.value)"
+    >{{ option.label }}</button>
+  </div>
+  <ng-container *ngFor="let option of drivetrains">
+    <p class="hint" *ngIf="settings.drivetrain === option.value">{{ option.hint }}</p>
+  </ng-container>
+
+  <div class="segmented" role="group" aria-label="Differential">
+    <button
+      *ngFor="let option of differentials"
+      type="button"
+      class="segmented__btn"
+      [class.is-active]="settings.differential === option.value"
+      [attr.aria-pressed]="settings.differential === option.value"
+      [disabled]="locked"
+      (click)="updateSetting('differential', option.value)"
+    >{{ option.label }} diff</button>
+  </div>
+  <ng-container *ngFor="let option of differentials">
+    <p class="hint" *ngIf="settings.differential === option.value">{{ option.hint }}</p>
+  </ng-container>
+</section>
+
+<section class="section">
   <h3 class="section__title">Parameters</h3>
 
   <div class="control" *ngFor="let field of fields">

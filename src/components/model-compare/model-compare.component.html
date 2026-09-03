@@ -31,10 +31,15 @@
       </label>
 
       <div class="model__text">
-        <span class="model__name">{{ model.name }}</span>
+        <span class="model__name">
+          {{ model.name }}
+          <span class="model__tag" *ngIf="model.objective === 'drift'">DRIFT</span>
+        </span>
         <span class="model__meta num">
           {{ model.carSettings.name }} · trained on {{ model.trainedTrackLabel }} ·
-          {{ model.bestLapTime ? (model.bestLapTime | number:'1.2-2') + 's' : model.bestProgress.toFixed(0) + '%' }}
+          {{ model.objective === 'drift'
+              ? (model.bestDriftScore | number:'1.0-0') + ' pts'
+              : (model.bestLapTime ? (model.bestLapTime | number:'1.2-2') + 's' : model.bestProgress.toFixed(0) + '%') }}
         </span>
         <span class="model__result num" *ngIf="resultFor(model) as r">
           on this track:

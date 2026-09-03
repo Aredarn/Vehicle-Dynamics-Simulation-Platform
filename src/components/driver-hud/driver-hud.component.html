@@ -1,0 +1,202 @@
+<div class="hud" [class.hud--off]="!telemetry.onTrack && telemetry.status === 'running'">
+
+  <!-- Speedometer, scaled to this car's own top speed -->
+  <div class="hud__dial">
+    <svg viewBox="-64 -64 128 128" class="dial" aria-hidden="true">
+      <path class="dial__track" [attr.d]="trackArc" />
+      <path class="dial__fill" [attr.d]="speedArc" />
+
+      <g class="dial__ticks">
+        <line
+          *ngFor="let t of ticks"
+          [class.is-major]="t.major"
+          [attr.x1]="tickOuter(t.angle).x"
+          [attr.y1]="tickOuter(t.angle).y"
+          [attr.x2]="tickInner(t.angle, t.major).x"
+          [attr.y2]="tickInner(t.angle, t.major).y"
+        />
+      </g>
+
+      <g class="dial__labels">
+        <text
+          *ngFor="let t of ticks"
+          [attr.x]="labelPoint(t.angle).x"
+          [attr.y]="labelPoint(t.angle).y"
+          text-anchor="middle"
+          dominant-baseline="middle"
+        >{{ t.label }}</text>
+      </g>
+
+      <line
+        class="dial__needle"
+        [attr.x1]="needleTail.x" [attr.y1]="needleTail.y"
+        [attr.x2]="needleTip.x" [attr.y2]="needleTip.y"
+      />
+      <circle class="dial__hub" cx="0" cy="0" r="4" />
+    </svg>
+
+    <div class="dial__readout">
+      <span class="dial__speed num">{{ telemetry.speedKmh | number: '1.0-0' }}</span>
+      <span class="dial__unit">km/h</span>
+    </div>
+  </div>
+
+  <!-- Drift score, in place of the lap-time chase when driving for angle -->
+  <div class="hud__block hud__drift" *ngIf="drift">
+    <span class="hud__title">Drift</span>
+    <span class="drift__score num">{{ telemetry.driftScore | number: '1.0-0' }}</span>
+    <div class="drift__meter">
+      <span class="drift__fill" [style.width.%]="driftQuality * 100" [class.is-live]="telemetry.driftActive"></span>
+    </div>
+    <div class="drift__row">
+      <span>{{ telemetry.bodySlipDeg | number: '1.0-0' }}&deg;</span>
+      <span class="drift__state">{{ driftAngleLabel }}</span>
+    </div>
+    <div class="drift__row">
+      <span class="num">&times;{{ telemetry.driftMultiplier | number: '1.1-1' }}</span>
+      <span>{{ telemetry.driftTransitions }} linked</span>
+    </div>
+    <div class="drift__row" *ngIf="bestDrift || aiBestDrift">
+      <span>best {{ bestDrift | number: '1.0-0' }}</span>
+      <span *ngIf="aiBestDrift">AI {{ aiBestDrift | number: '1.0-0' }}</span>
+    </div>
+  </div>
+
+  <!-- Lap timing -->
+  <div class="hud__block hud__timing">
+    <div class="lap lap--current">
+      <span class="lap__label">Lap</span>
+      <span class="lap__time num">{{ formatTime(telemetry.lapTime) }}</span>
+    </div>
+
+    <div class="lap">
+      <span class="lap__label">Best</span>
+      <span class="lap__time lap__time--sm num">{{ bestLap ? formatTime(bestLap) : '--.---' }}</span>
+    </div>
+
+    <div class="lap" *ngIf="targetLap > 0">
+      <span class="lap__label">{{ targetLabel }}</span>
+      <span class="lap__time lap__time--sm num">{{ formatTime(targetLap) }}</span>
+    </div>
+
+    <div class="delta" *ngIf="deltaToBeat !== null" [class.delta--ahead]="deltaToBeat < 0">
+      <span class="lap__label">Delta</span>
+      <span class="num">{{ formatDelta(deltaToBeat) }}</span>
+    </div>
+
+    <div class="progress">
+      <div class="progress__bar"><span [style.width.%]="telemetry.progressRatio * 100"></span></div>
+      <span class="progress__pct num">{{ telemetry.progressRatio * 100 | number: '1.0-0' }}%</span>
+    </div>
+
+    <p class="status" [class.status--warn]="!telemetry.onTrack" [class.status--good]="telemetry.status === 'finished'">
+      {{ statusLabel }}
+    </p>
+    <p class="status status--warn" *ngIf="lastLap && !lastLap.valid">{{ lastLap.note }}</p>
+  </div>
+
+  <!-- Pedals and steering: what the car is actually being given -->
+  <div class="hud__block hud__inputs">
+    <div class="pedal">
+      <span class="pedal__label">THR</span>
+      <div class="pedal__bar"><span class="pedal__fill pedal__fill--thr" [style.height.%]="telemetry.throttle * 100"></span></div>
+    </div>
+    <div class="pedal">
+      <span class="pedal__label">BRK</span>
+      <div class="pedal__bar"><span class="pedal__fill pedal__fill--brk" [style.height.%]="telemetry.brake * 100"></span></div>
+    </div>
+    <div class="steer">
+      <span class="pedal__label">STEER</span>
+      <div class="steer__track">
+        <span class="steer__centre"></span>
+        <span class="steer__fill" [style.left.%]="telemetry.steer < 0 ? 50 + telemetry.steer * 50 : 50"
+              [style.width.%]="(telemetry.steer < 0 ? -telemetry.steer : telemetry.steer) * 50"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Friction circle: where the tyre budget is actually going -->
+  <div class="hud__block hud__gg">
+    <span class="hud__title">g-g</span>
+    <svg viewBox="-40 -40 80 80" class="gg" aria-hidden="true">
+      <circle class="gg__limit" cx="0" cy="0" [attr.r]="gLimitRadius" />
+      <line class="gg__axis" x1="-36" y1="0" x2="36" y2="0" />
+      <line class="gg__axis" x1="0" y1="-36" x2="0" y2="36" />
+      <circle class="gg__dot" [attr.cx]="gDot.x" [attr.cy]="gDot.y" r="3.4" />
+    </svg>
+    <div class="gg__figures">
+      <span class="num">{{ telemetry.lateralG | number: '1.2-2' }}<em>lat</em></span>
+      <span class="num">{{ telemetry.longitudinalG | number: '1.2-2' }}<em>lon</em></span>
+    </div>
+  </div>
+
+  <!-- Tyre load and grip usage -->
+  <div class="hud__block hud__grip">
+    <span class="hud__title">Tyre load &amp; grip</span>
+
+    <div class="axle">
+      <span class="axle__label">FRONT</span>
+      <div class="axle__bar">
+        <span class="axle__fill" [class.is-over]="telemetry.frontUsage > 0.98"
+              [style.width.%]="(telemetry.frontUsage > 1 ? 1 : telemetry.frontUsage) * 100"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.frontUsage * 100 | number: '1.0-0' }}%</span>
+    </div>
+
+    <div class="axle">
+      <span class="axle__label">REAR</span>
+      <div class="axle__bar">
+        <span class="axle__fill" [class.is-over]="telemetry.rearUsage > 0.98"
+              [style.width.%]="(telemetry.rearUsage > 1 ? 1 : telemetry.rearUsage) * 100"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.rearUsage * 100 | number: '1.0-0' }}%</span>
+    </div>
+
+    <div class="axle">
+      <span class="axle__label">DRIVE</span>
+      <div class="axle__bar drive__bar">
+        <span class="drive__front" [style.width.%]="telemetry.frontDriveShare * 100"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.drivetrainLabel }}</span>
+    </div>
+
+    <div class="transfer">
+      <span class="axle__label">LOAD</span>
+      <div class="transfer__bar">
+        <span class="transfer__split" [style.left.%]="telemetry.frontLoadShare * 100"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.frontLoadShare * 100 | number: '1.0-0' }}F</span>
+    </div>
+
+    <div class="slip">
+      <span class="axle__label">SLIP</span>
+      <div class="slip__track">
+        <span class="slip__centre"></span>
+        <span class="slip__fill" [class.is-big]="slideSeverity > 0.6"
+              [style.left.%]="slipBar.left" [style.width.%]="slipBar.width"></span>
+      </div>
+      <span class="axle__val num">{{ telemetry.bodySlipDeg | number: '1.0-0' }}&deg;</span>
+    </div>
+
+    <p class="flag flag--oversteer" *ngIf="telemetry.oversteering">
+      OVERSTEER — rear is away, catch it
+    </p>
+    <p class="flag flag--understeer" *ngIf="telemetry.gripLimited && !telemetry.oversteering">
+      UNDERSTEER — no grip left to turn
+    </p>
+    <p class="flag flag--surface" *ngIf="!telemetry.onTrack">
+      SURFACE {{ telemetry.surfaceGrip * 100 | number: '1.0-0' }}% ·
+      {{ telemetry.offTrackGrace - telemetry.offTrackTime | number: '1.1-1' }}s
+    </p>
+  </div>
+
+  <!-- Derived figures that explain the car rather than decorate it -->
+  <div class="hud__block hud__figures">
+    <div class="fig"><span class="fig__k">Power</span><span class="fig__v num">{{ telemetry.powerKw | number: '1.0-0' }} kW</span></div>
+    <div class="fig"><span class="fig__k">Drag</span><span class="fig__v num">{{ telemetry.dragForce | number: '1.0-0' }} N</span></div>
+    <div class="fig"><span class="fig__k">Aero</span><span class="fig__v num">{{ telemetry.downforce | number: '1.0-0' }} N</span></div>
+    <div class="fig"><span class="fig__k">Brake</span><span class="fig__v num">{{ telemetry.brakeForce | number: '1.0-0' }} N</span></div>
+    <div class="fig"><span class="fig__k">Yaw</span><span class="fig__v num">{{ telemetry.yawRate | number: '1.2-2' }} r/s</span></div>
+    <div class="fig"><span class="fig__k">Dist</span><span class="fig__v num">{{ telemetry.distance | number: '1.0-0' }} m</span></div>
+  </div>
+</div>

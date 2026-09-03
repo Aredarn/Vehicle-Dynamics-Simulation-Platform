@@ -1,5 +1,5 @@
 import { CarState, RacingLinePoint } from "../interfaces/car-state";
-import { CarSettings } from "../services/car-settings.service";
+import { Drivetrain, Differential, CarSettings } from "../services/car-settings.service";
 import { calculateCorneringSpeedLimit, calculateLongitudinalAcceleration, calculatePerformance } from "../utils/car-physics";
 import { TrackModel } from "../utils/track-geometry";
 
@@ -12,6 +12,9 @@ export class Car {
     downforce!: number;
     finalDrive!: number;
     wheelbase!: number;
+    drivetrain!: Drivetrain;
+    steeringLockDeg!: number;
+    differential!: Differential;
 
     state: CarState = {
         s: 0,
@@ -37,6 +40,9 @@ export class Car {
         this.downforce = settings.downforce;
         this.finalDrive = settings.finalDrive;
         this.wheelbase = settings.wheelbase;
+        this.drivetrain = settings.drivetrain;
+        this.differential = settings.differential;
+        this.steeringLockDeg = settings.steeringLockDeg;
         const performance = calculatePerformance(settings);
         this.maxSpeed = performance.topSpeed / 3.6;
         this.invalidateRacingLine();
@@ -162,6 +168,9 @@ export class Car {
             downforce: this.downforce,
             finalDrive: this.finalDrive,
             wheelbase: this.wheelbase,
+            drivetrain: this.drivetrain,
+            differential: this.differential,
+            steeringLockDeg: this.steeringLockDeg,
         };
     }
 

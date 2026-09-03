@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { CarSettings } from './car-settings.service';
 import { CarAgent, AgentGenome, AI_INPUT_COUNT, AI_HIDDEN_SIZE } from '../models/CarAgent';
+import { TrainingObjective } from '../utils/drift-scoring';
 import { RacingLinePoint } from '../interfaces/car-state';
 import { getTrackLength } from '../utils/track-utils';
 import { TrackModel } from '../utils/track-geometry';
@@ -13,6 +14,8 @@ export interface AILearningConfig {
   populationSize: number;
   generations: number;
   mutationRate: number;
+  /** What the population is being scored for. Defaults to the existing grip behaviour. */
+  objective?: TrainingObjective;
   /** Start the population from a previously trained model instead of random weights. */
   seedWeights?: number[] | null;
 }
@@ -33,6 +36,9 @@ export interface AIGenerationStats {
   averageFitness: number;
   active: boolean;
   carModel: string;
+  /** Best drift score this generation. Meaningless (and zero) for grip runs. */
+  bestDriftScore: number;
+  objective: TrainingObjective;
 }
 
 export interface AITrainingHistoryEntry {
@@ -46,6 +52,7 @@ export interface AITrainingHistoryEntry {
   trajectory: Array<{ x: number; y: number; heading: number; s: number }>;
   /** The generation's best genome, kept small (~220 floats) so every checkpoint is extractable as a model. */
   weights: number[];
+  bestDriftScore: number;
 }
 
 export interface AITrainingRun {
@@ -64,6 +71,9 @@ export interface AITrainingRun {
   carSettings: CarSettings;
   trackLabel: string;
   trackLength: number;
+  bestDriftScore: number;
+  /** So a drift run is never silently compared against a grip one. */
+  objective: TrainingObjective;
 }
 
 const GENOME_WEIGHT_COUNT = weightCount(AI_INPUT_COUNT, AI_HIDDEN_SIZE);
@@ -85,7 +95,13 @@ export function calculateSimulationSteps(
   topSpeedMs: number,
   dt: number,
   referenceLapSeconds = 0,
-  minSteps = 1200
+  minSteps = 1200,
+  /**
+   * Drifting a lap takes far longer than driving it quickly. On the grip budget a drift agent
+   * simply ran out of clock mid-lap, so completing the course — and every term that depends on
+   * progress — stayed out of reach no matter how well it drifted.
+   */
+  budgetMultiplier = 1
 ): number {
   const safeLength = Math.max(50, trackLength);
   const safeTopSpeed = Math.max(8, topSpeedMs);
@@ -95,7 +111,7 @@ export function calculateSimulationSteps(
     ? referenceLapSeconds * 3
     : (safeLength / Math.max(4, safeTopSpeed * 0.45)) * 2.2;
 
-  const targetSeconds = Math.max(75, estimatedLapSeconds);
+  const targetSeconds = Math.max(75, estimatedLapSeconds) * Math.max(1, budgetMultiplier);
   return Math.max(minSteps, Math.ceil(targetSeconds / dt));
 }
 
@@ -110,7 +126,12 @@ export class AIDrivingService {
     averageFitness: 0,
     active: false,
     carModel: '',
+    bestDriftScore: 0,
+    objective: 'grip',
   });
+
+  /** What the current run is being ranked for. Set for the duration of `train()`. */
+  private rankingObjective: TrainingObjective = 'grip';
 
   private populationSubject = new BehaviorSubject<CarAgent[]>([]);
   stats$: Observable<AIGenerationStats> = this.statsSubject.asObservable();
@@ -121,6 +142,24 @@ export class AIDrivingService {
   selectedHistoryEntry$: Observable<AITrainingHistoryEntry | null> = this.selectedHistoryEntrySubject.asObservable();
   private stopRequested = false;
   private trainingActive = false;
+
+  /**
+   * How fast the simulation is allowed to run, as simulated seconds per real second.
+   *
+   * `Infinity` runs flat out, which is what a long training run wants — but with a handful of
+   * cars a generation is then over before anything is visible on screen. Pacing the physics to
+   * real time makes a small population watchable, and the value is read fresh on every step so
+   * it can be changed while a run is in progress.
+   */
+  private speed = Number.POSITIVE_INFINITY;
+
+  setTrainingSpeed(simulatedSecondsPerSecond: number) {
+    this.speed = simulatedSecondsPerSecond > 0 ? simulatedSecondsPerSecond : Number.POSITIVE_INFINITY;
+  }
+
+  get trainingSpeed(): number {
+    return this.speed;
+  }
 
   constructor(private racingLineOptimizer: RacingLineOptimizerService) {}
 
@@ -154,6 +193,8 @@ export class AIDrivingService {
     const populationSize = Math.max(4, config.populationSize);
     const generations = Math.max(1, config.generations);
     const mutationRate = Math.max(0, Math.min(config.mutationRate, 1));
+    const objective: TrainingObjective = config.objective ?? 'grip';
+    this.rankingObjective = objective;
 
     // Freeze the layout for the whole run. The editor rebuilds its model on every change, but
     // snapshotting here keeps a run immune to edits regardless: an edit mid-run would otherwise
@@ -170,7 +211,10 @@ export class AIDrivingService {
     // Reference speed profile/lap time used to shape the reward (see CarAgent.updateFitness) —
     // reuses the same optimizer the UI's racing-line display uses, computed once per run.
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
-    const simulationSteps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
+    const simulationSteps = calculateSimulationSteps(
+      trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime, 1200,
+      objective === 'drift' ? 1.8 : 1
+    );
 
     // Seeding from a saved model starts the population at (and around) an already-competent
     // driver instead of from scratch, so training the same model on a different track adapts it
@@ -194,10 +238,12 @@ export class AIDrivingService {
       bestProgress: 0,
       aliveCount: 0,
       averageFitness: 0,
+      bestDriftScore: 0,
       entries: [],
       carSettings: { ...settings },
       trackLabel,
       trackLength,
+      objective,
     };
     this.runsSubject.next([...existingRuns, currentRun]);
 
@@ -210,11 +256,18 @@ export class AIDrivingService {
     for (let generation = 1; generation <= generations; generation++) {
       if (this.stopRequested) break;
 
-      const agents = population.map(genome => new CarAgent(this.cloneGenome(genome), settings));
+      const agents = population.map(genome => new CarAgent(this.cloneGenome(genome), settings, objective));
       agents.forEach(agent => agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime));
 
       this.populationSubject.next(agents);
       await this.simulateAgents(agents, simulationSteps, dt);
+
+      // Stopping cuts the simulation short part-way through the generation, so every agent is
+      // frozen mid-lap: none have finished, most are still "alive", and their fitness reflects
+      // however far they happened to get. Recording that as a generation made a stopped run
+      // look like it had collapsed — the exported history ended on a truncated result far worse
+      // than anything the run actually produced.
+      if (this.stopRequested) break;
 
       population = agents.map(agent => this.cloneGenome(agent.genome));
       population.sort((a, b) => this.compareGenomes(a, b));
@@ -242,6 +295,7 @@ export class AIDrivingService {
       const roundedBestFitness = Math.round(bestGenome.fitness * 100) / 100;
       const roundedAverageFitness = Math.round(averageFitness * 100) / 100;
       const roundedBestLapTime = Math.round(bestLapTime * 100) / 100;
+      const bestDriftScore = Math.round((bestGenome.driftScore ?? 0) * 10) / 10;
 
       if (roundedBestFitness > bestFitnessEver + 1) {
         bestFitnessEver = roundedBestFitness;
@@ -269,6 +323,8 @@ export class AIDrivingService {
         averageFitness: roundedAverageFitness,
         active: true,
         carModel: settings.name,
+        bestDriftScore,
+        objective,
       });
 
       const entry: AITrainingHistoryEntry = {
@@ -281,6 +337,7 @@ export class AIDrivingService {
         averageFitness: roundedAverageFitness,
         trajectory: bestAgentSnapshot?.trajectory ?? [],
         weights: bestAgentSnapshot ? [...bestAgentSnapshot.genome.weights] : [],
+        bestDriftScore,
       };
 
       currentRun = {
@@ -291,6 +348,9 @@ export class AIDrivingService {
         bestProgress,
         aliveCount,
         averageFitness: roundedAverageFitness,
+        // The headline drift figure is the best ever reached in the run, not the latest
+        // generation's — a generation can regress without erasing what was achieved.
+        bestDriftScore: Math.max(currentRun.bestDriftScore, bestDriftScore),
         entries: [...currentRun.entries, entry],
       };
       this.updateRun(currentRun);
@@ -308,13 +368,13 @@ export class AIDrivingService {
 
     let bestAgents: CarAgent[] = [];
     if (bestAgentSnapshot) {
-      const agent = new CarAgent(this.cloneGenome(bestAgentSnapshot.genome), settings);
+      const agent = new CarAgent(this.cloneGenome(bestAgentSnapshot.genome), settings, objective);
       agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
       agent.trajectory = bestAgentSnapshot.trajectory.map(point => ({ ...point }));
       agent.state = { ...bestAgentSnapshot.state };
       bestAgents = [agent];
     } else if (bestGenome) {
-      bestAgents = [new CarAgent(this.cloneGenome(bestGenome), settings)];
+      bestAgents = [new CarAgent(this.cloneGenome(bestGenome), settings, objective)];
       bestAgents[0].reset(track, optimalLine.points, optimalLine.estimatedLapTime);
     }
 
@@ -338,7 +398,12 @@ export class AIDrivingService {
    * `simulateAgents` uses for large populations; one agent per call is cheap enough to just run
    * to completion, yielding occasionally so a long track doesn't block the UI.
    */
-  async runGenomeOnTrack(weights: number[], settings: CarSettings, trackModel: TrackModel): Promise<ModelRunResult> {
+  async runGenomeOnTrack(
+    weights: number[],
+    settings: CarSettings,
+    trackModel: TrackModel,
+    objective: TrainingObjective = 'grip'
+  ): Promise<ModelRunResult> {
     const track: TrackModel = { ...trackModel, points: trackModel.points.map(p => ({ ...p })) };
     const centerline = track.points;
     const trackLength = getTrackLength(centerline);
@@ -349,13 +414,38 @@ export class AIDrivingService {
     const optimalLine = this.racingLineOptimizer.optimize(centerline, settings);
     const steps = calculateSimulationSteps(trackLength, topSpeedMs, dt, optimalLine.estimatedLapTime);
 
-    const agent = new CarAgent(this.spawnGenome([...weights]), settings);
+    const agent = new CarAgent(this.spawnGenome([...weights]), settings, objective);
     agent.reset(track, optimalLine.points, optimalLine.estimatedLapTime);
+
+    // Replay honours the same speed slider as training. At Max this runs flat out and only the
+    // finished line is drawn, which is what a bulk comparison wants; at a real-time setting the
+    // car is published as it goes, so a trained model can actually be watched driving instead of
+    // only leaving a line behind.
+    const runStart = performance.now();
+    let lastSnapshot = 0;
 
     for (let step = 0; step < steps && agent.state.alive; step++) {
       agent.update(dt);
-      if (step % 500 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+      const speed = this.speed;
+      if (Number.isFinite(speed)) {
+        const dueAt = runStart + ((step + 1) * dt * 1000) / speed;
+        let waitMs = dueAt - performance.now();
+        while (waitMs > 1) {
+          const now = performance.now();
+          if (now - lastSnapshot >= 40) {
+            this.populationSubject.next([agent]);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 16)));
+          waitMs = dueAt - performance.now();
+        }
+      } else if (step % 500 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
+
+    this.populationSubject.next([agent]);
 
     return {
       trajectory: agent.trajectory,
@@ -371,8 +461,25 @@ export class AIDrivingService {
    * reward shaping could express a preference for a better racing line. Progress still leads
    * in practice because it is the dominant term inside fitness.
    */
+  /**
+   * Ranking used for the champion, the hall of fame and elite selection alike.
+   *
+   * Completing the lap is an absolute tie-break for GRIP: finishing is the objective, and the
+   * reward already scores a finisher above a non-finisher, so the two agree.
+   *
+   * For DRIFT they disagree, and letting completion win overrode the entire objective. A car
+   * that completed a lap without ever going sideways outranked one that drifted superbly and
+   * ran out of road — so the moment any agent finished, it became champion, displaced the far
+   * better drifter from the hall of fame, and could never be displaced back, because the
+   * drifter does not finish. The population was then bred toward completing laps rather than
+   * drifting, and the reported best fitness fell generation after generation. Drift runs are
+   * therefore ranked on fitness alone, which already accounts for finishing: the completion
+   * bonus is paid in proportion to how much of the lap was actually spent sideways.
+   */
   private compareGenomes(a: AgentGenome, b: AgentGenome): number {
-    if (a.completedLap !== b.completedLap) return a.completedLap ? -1 : 1;
+    if (this.rankingObjective !== 'drift' && a.completedLap !== b.completedLap) {
+      return a.completedLap ? -1 : 1;
+    }
     return b.fitness - a.fitness;
   }
 
@@ -408,6 +515,7 @@ export class AIDrivingService {
       maxProgress: 0,
       progressRatio: 0,
       completedLap: false,
+      driftScore: 0,
     };
   }
 
@@ -426,8 +534,33 @@ export class AIDrivingService {
     let sliceStart = performance.now();
     let lastSnapshot = 0;
 
+    // Wall-clock origin for paced playback. Each step advances the world by `dt`, so at a speed
+    // of N the step that has just finished should not complete before step*dt/N seconds have
+    // actually passed.
+    const runStart = performance.now();
+    let pacedSteps = 0;
+
     for (let step = 0; step < steps; step++) {
       if (this.stopRequested) break;
+
+      // Read the speed every step so the slider takes effect immediately, mid-generation.
+      const speed = this.speed;
+      if (Number.isFinite(speed)) {
+        const dueAt = runStart + (pacedSteps * dt * 1000) / speed;
+        let waitMs = dueAt - performance.now();
+        while (waitMs > 1 && !this.stopRequested) {
+          // Push the field while waiting, so a slow-motion run animates rather than jumping.
+          const now = performance.now();
+          if (now - lastSnapshot >= SNAPSHOT_INTERVAL_MS) {
+            this.populationSubject.next(agents);
+            lastSnapshot = now;
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 16)));
+          waitMs = dueAt - performance.now();
+        }
+        sliceStart = performance.now();
+      }
+      pacedSteps++;
 
       let anyActive = false;
 
@@ -566,6 +699,7 @@ export class AIDrivingService {
       maxProgress: 0,
       progressRatio: 0,
       completedLap: false,
+      driftScore: 0,
     };
   }
 
