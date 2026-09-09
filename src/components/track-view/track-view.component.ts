@@ -5,7 +5,7 @@ import { Subscription } from 'rxjs';
 import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
 import { RacingLineOptimizerService } from '../../services/racing-line-optimizer.service';
 import { AIDrivingService, AIGenerationStats } from '../../services/ai-driving.service';
-import { ThemeService } from '../../services/theme.service';
+import { ThemePreference, ThemeService } from '../../services/theme.service';
 import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
 import { CarAgent } from '../../models/CarAgent';
@@ -146,7 +146,24 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   ) {}
 
   activeTab: SidebarTab = 'track';
-  telemetryOpen = true;
+  telemetryOpen = false;
+
+  /**
+   * The panel docks beside the rail and folds away entirely.
+   *
+   * The canvas runs edge to edge underneath, so collapsing the dock hands the
+   * whole instrument back to the track rather than merely narrowing a column.
+   */
+  dockCollapsed = window.innerWidth <= TrackViewComponent.COMPACT_W;
+
+  /** Tracks breakpoint crossings so the dock folds itself away on the way down. */
+  private wasCompact = window.innerWidth <= TrackViewComponent.COMPACT_W;
+
+  readonly themeOptions: Array<{ value: ThemePreference; icon: string; label: string }> = [
+    { value: 'light', icon: 'sun', label: 'Light' },
+    { value: 'dark', icon: 'moon', label: 'Dark' },
+    { value: 'system', icon: 'monitor', label: 'System' },
+  ];
 
   readonly tabs: Array<{ id: SidebarTab; label: string; icon: string }> = [
     { id: 'car', label: 'Car', icon: 'car' },
@@ -257,6 +274,29 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
    * the same fixed 1/30 s. Frame rate therefore has no effect on the lap time, which is what
    * makes a player's lap comparable with an agent's rather than a function of their monitor.
    */
+  /*
+   * Chrome insets, matching the rail, dock, strip and telemetry sizes in CSS.
+   *
+   * The canvas is the ground and runs edge to edge underneath the chrome, so
+   * fitting or following has to centre the track in the part of it you can
+   * actually see; centring on the raw element would park the car behind the
+   * docked panel.
+   */
+  private static readonly RAIL_W = 52;
+  private static readonly DOCK_W = 312;
+  private static readonly STRIP_H = 44;
+  private static readonly TELEMETRY_H = 268;
+
+  /**
+   * Below this width the panel overlays the canvas instead of sitting beside it,
+   * the rail narrows and the drawer is sized as a fraction of the viewport.
+   * Mirrors the `@media (max-width: 900px)` block in the component stylesheet —
+   * change one and you must change the other.
+   */
+  private static readonly COMPACT_W = 900;
+  private static readonly RAIL_W_COMPACT = 46;
+  private static readonly TELEMETRY_FRACTION = 0.46;
+
   private static readonly PLAYER_DT = 1 / 30;
   private static readonly MAX_CATCHUP_STEPS = 8;
 
@@ -360,16 +400,79 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   // ---------- Layout ----------
   selectTab(tab: SidebarTab) {
+    // Clicking the rail while the panel is folded away should open it rather than
+    // silently changing which panel would appear if it were open.
+    if (this.dockCollapsed) {
+      this.activeTab = tab;
+      this.toggleDock();
+      return;
+    }
+    // Clicking the panel already showing folds it away, so the rail doubles as a toggle.
+    if (this.activeTab === tab) {
+      this.toggleDock();
+      return;
+    }
     this.activeTab = tab;
   }
 
-  toggleTelemetry() {
-    this.telemetryOpen = !this.telemetryOpen;
-    // The canvas box changes size, so re-fit the camera on the next frame.
+  get themePreference(): ThemePreference {
+    return this.themeService.preference;
+  }
+
+  setTheme(preference: ThemePreference) {
+    this.themeService.setPreference(preference);
+  }
+
+  get activeTabLabel(): string {
+    return this.tabs.find(tab => tab.id === this.activeTab)?.label ?? '';
+  }
+
+  toggleDock() {
+    this.dockCollapsed = !this.dockCollapsed;
+    this.afterLayoutChange();
+  }
+
+  /** The figure the strip leads with: drift points when drifting, lap time otherwise. */
+  get headlineLabel(): string {
+    return this.isDrift ? 'Best drift' : 'Best lap';
+  }
+
+  get headlineValue(): string {
+    if (this.isDrift) {
+      return this.aiStats.bestDriftScore ? this.aiStats.bestDriftScore.toFixed(0) : '—';
+    }
+    return this.aiStats.bestLapTime ? this.aiStats.bestLapTime.toFixed(2) : '—';
+  }
+
+  get headlineUnit(): string {
+    if (this.isDrift) return this.aiStats.bestDriftScore ? 'pts' : '';
+    return this.aiStats.bestLapTime ? 's' : '';
+  }
+
+  /** Generations done as a 0..1 fraction, clamped so a bad config cannot overscale the bar. */
+  get trainingProgress(): number {
+    const total = this.aiConfig.generations;
+    if (!total || total <= 0) return 0;
+    return Math.min(1, Math.max(0, this.aiStats.generation / total));
+  }
+
+  /** Idle, running or finished — the one word the strip reports about the session. */
+  get sessionState(): 'idle' | 'running' | 'ready' {
+    if (this.isTraining) return 'running';
+    return this.aiStats.generation > 0 ? 'ready' : 'idle';
+  }
+
+  /** The canvas box changed, so re-measure it and repaint on the next frame. */
+  private afterLayoutChange() {
     requestAnimationFrame(() => {
       this.resizeCanvasToContainer();
       this.requestRedraw();
     });
+  }
+
+  toggleTelemetry() {
+    this.telemetryOpen = !this.telemetryOpen;
+    this.afterLayoutChange();
   }
 
   setTelemetryView(view: 'training' | 'models') {
@@ -499,6 +602,24 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     this.requestRedraw();
   }
 
+  /** True while the compact layout is in force; see COMPACT_W. */
+  private get isCompact(): boolean {
+    return window.innerWidth <= TrackViewComponent.COMPACT_W;
+  }
+
+  private get viewInsetLeft(): number {
+    // Compact: the dock floats over the canvas, so only the rail takes width off it.
+    if (this.isCompact) return TrackViewComponent.RAIL_W_COMPACT;
+    return TrackViewComponent.RAIL_W + (this.dockCollapsed ? 0 : TrackViewComponent.DOCK_W);
+  }
+
+  private get viewInsetBottom(): number {
+    if (!this.telemetryOpen) return 0;
+    return this.isCompact
+      ? TrackViewComponent.TELEMETRY_FRACTION * this.viewHeight
+      : TrackViewComponent.TELEMETRY_H;
+  }
+
   fitTrackToView() {
     const bbox = this.getTrackBoundingBox();
 
@@ -517,17 +638,22 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     // open) instead of staying fixed at 60px each side — a fixed padding bigger than the
     // viewport itself drove `scaleX`/`scaleY` negative, which flipped and effectively hid
     // everything drawn afterwards (comparison lines, agents) with no visible error.
-    const padding = Math.max(8, Math.min(60, Math.min(this.viewWidth, this.viewHeight) / 6));
-    const scaleX = (this.viewWidth - padding * 2) / Math.max(bboxWidthPx, 100);
-    const scaleY = (this.viewHeight - padding * 2) / Math.max(bboxHeightPx, 100);
+    const left = this.viewInsetLeft;
+    const top = TrackViewComponent.STRIP_H;
+    const usableW = Math.max(120, this.viewWidth - left);
+    const usableH = Math.max(120, this.viewHeight - top - this.viewInsetBottom);
+
+    const padding = Math.max(8, Math.min(60, Math.min(usableW, usableH) / 6));
+    const scaleX = (usableW - padding * 2) / Math.max(bboxWidthPx, 100);
+    const scaleY = (usableH - padding * 2) / Math.max(bboxHeightPx, 100);
     const scale = Math.max(0.05, Math.min(scaleX, scaleY, 2));
 
     const centerX = (bbox.minX + bbox.maxX) / 2 * PX_PER_M;
     const centerY = (bbox.minY + bbox.maxY) / 2 * PX_PER_M;
 
     this.camera.scale = scale;
-    this.camera.offsetX = this.viewWidth / 2 - centerX * scale;
-    this.camera.offsetY = this.viewHeight / 2 - centerY * scale;
+    this.camera.offsetX = left + usableW / 2 - centerX * scale;
+    this.camera.offsetY = top + usableH / 2 - centerY * scale;
     this.zoomLevel = Math.round(scale * 100);
   }
 
@@ -915,6 +1041,12 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
 
   @HostListener('window:resize')
   onWindowResize() {
+    const compact = this.isCompact;
+    // Only the downward crossing folds the dock: widening must not undo a
+    // deliberate choice to keep the panel open.
+    if (compact && !this.wasCompact) this.dockCollapsed = true;
+    this.wasCompact = compact;
+
     this.resizeCanvasToContainer();
     this.requestRedraw();
   }
@@ -2113,8 +2245,12 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private centerCameraOn(worldX: number, worldY: number) {
-    this.camera.offsetX = this.viewWidth / 2 - worldX * PX_PER_M * this.camera.scale;
-    this.camera.offsetY = this.viewHeight / 2 - worldY * PX_PER_M * this.camera.scale;
+    const left = this.viewInsetLeft;
+    const top = TrackViewComponent.STRIP_H;
+    const usableW = Math.max(120, this.viewWidth - left);
+    const usableH = Math.max(120, this.viewHeight - top - this.viewInsetBottom);
+    this.camera.offsetX = left + usableW / 2 - worldX * PX_PER_M * this.camera.scale;
+    this.camera.offsetY = top + usableH / 2 - worldY * PX_PER_M * this.camera.scale;
   }
 
   /** The lap the driver is chasing: the AI's best if it has set one, else the reference lap. */

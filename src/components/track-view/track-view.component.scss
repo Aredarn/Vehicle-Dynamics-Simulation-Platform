@@ -5,60 +5,274 @@
   min-width: 0;
 }
 
+/* ── Workspace ────────────────────────────────────────────────
+   The canvas is the ground. The rail, the docked panel, the session strip and
+   the telemetry drawer all sit on top of it, so folding any of them away hands
+   that space straight back to the track instead of resizing a column.
+   ──────────────────────────────────────────────────────────── */
+
 .workspace {
-  display: flex;
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
+  background: var(--canvas-bg);
 }
 
-/* ── Sidebar ──────────────────────────────────────────────── */
+.field {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
-.sidebar {
+/* ── Rail ─────────────────────────────────────────────────── */
+
+.rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  flex: 0 0 var(--sidebar-w);
-  width: var(--sidebar-w);
-  min-height: 0;
+  align-items: stretch;
+  width: var(--rail-w);
+  padding-bottom: var(--sp-2);
   background: var(--surface-1);
   border-right: 1px solid var(--border);
+}
 
-  &__body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+.rail__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--strip-h);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-cond);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  /* The accent belongs to run state; a wordmark is not state. */
+  color: var(--text-2);
+  user-select: none;
+}
+
+.rail__tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 54px;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+
+  &:hover { color: var(--text-1); background: var(--surface-2); }
+
+  /* The active tab is marked by a bar in the accent, not by a filled tile. */
+  &.is-active {
+    color: var(--accent);
+    background: var(--surface-2);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--accent);
+    }
   }
 }
 
-.tabs {
+.rail__label {
+  font-family: var(--font-cond);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.rail__gap { flex: 1 1 auto; }
+
+.rail__theme {
   display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+
+  &:hover { color: var(--text-1); background: var(--surface-2); }
+  &.is-active { color: var(--accent); }
+}
+
+/* ── Docked panel ─────────────────────────────────────────── */
+
+.dock {
+  position: absolute;
+  top: 0;
+  left: var(--rail-w);
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: var(--dock-w);
+  background: var(--surface-1);
+  border-right: 1px solid var(--border-strong);
+}
+
+.dock__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
   flex-shrink: 0;
+  height: var(--strip-h);
+  padding: 0 var(--sp-2) 0 var(--sp-4);
   border-bottom: 1px solid var(--border);
+}
 
-  &__tab {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 38px;
-    padding: 0 6px;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: var(--text-3);
-    font-size: var(--fs-sm);
-    font-weight: 500;
-    cursor: pointer;
-    transition: color var(--transition), border-color var(--transition), background-color var(--transition);
+.dock__title {
+  font-family: var(--font-cond);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
 
-    &:hover { color: var(--text-1); background: var(--surface-2); }
+.dock__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
 
-    &.is-active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-    }
+/* Folded away, the panel leaves one tab against the rail to bring it back. */
+.dock-reopen {
+  position: absolute;
+  top: var(--strip-h);
+  left: var(--rail-w);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 44px;
+  border: 1px solid var(--border-strong);
+  border-left: none;
+  background: var(--surface-1);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+
+  &:hover { color: var(--accent); background: var(--surface-2); }
+}
+
+/* ── Session strip ────────────────────────────────────────── */
+
+.strip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--rail-w) + var(--dock-w));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: var(--strip-h);
+  padding: 0 var(--sp-4) 0 var(--sp-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  transition: left var(--transition);
+
+  .workspace:not(.is-docked) & { left: var(--rail-w); }
+}
+
+.strip__action,
+.strip__stop { flex-shrink: 0; }
+
+/* While a run is going the primary action reads as live rather than merely disabled. */
+.strip[data-state='running'] .strip__stop {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.strip__rule {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.strip__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.strip__legend {
+  font-family: var(--font-cond);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.strip__value {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &--tag {
+    font-family: var(--font-cond);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+}
+
+.strip__of {
+  margin-left: 1px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* The figure the session is judged on gets the size; nothing else competes. */
+.strip__field--lead {
+  margin-left: auto;
+  align-items: flex-end;
+  padding-left: var(--sp-4);
+  text-align: right;
+
+  .strip__value {
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--accent);
   }
 }
 
@@ -75,26 +289,39 @@
 .palette {
   display: flex;
   flex-direction: column;
-  gap: 3px;
   margin-bottom: var(--sp-3);
 
+  /* Rows on a rule, not nine filled tiles: this is the largest block in the
+     first viewport, and equal-weight cards are the look this world rejects. */
   &__item {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: 6px 8px;
-    border: 1px solid transparent;
-    border-radius: var(--r-2);
-    background: var(--surface-2);
+    padding: 7px 8px 7px 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
     color: var(--text-2);
     cursor: grab;
-    transition: background-color var(--transition), border-color var(--transition), color var(--transition);
+    transition: background-color var(--transition), color var(--transition);
 
     &:hover {
-      background: var(--surface-3);
-      border-color: var(--border-strong);
+      background: var(--surface-2);
       color: var(--text-1);
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--accent);
+      }
     }
+
+    &:last-child { border-bottom: none; }
 
     &:active { cursor: grabbing; }
   }
@@ -130,11 +357,20 @@
   margin-bottom: var(--sp-3);
 
   &__label {
+    flex: 0 1 auto;
+    min-width: 0;
     font-size: var(--fs-sm);
     color: var(--text-2);
   }
 
-  .segmented { flex: 0 0 auto; }
+  /* The control takes what the label leaves and shrinks with the panel; at
+     `flex: 0 0 auto` its `width: 100%` resolved against the row and pushed the
+     far segment off the edge. */
+  .segmented {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
 }
 
 .btn-row {
@@ -153,21 +389,34 @@
 /* ── Presets ──────────────────────────────────────────────── */
 
 .preset {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   width: 100%;
-  padding: 8px 10px;
-  margin-bottom: 4px;
+  padding: 8px 10px 8px 0;
   text-align: left;
-  border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  background: var(--surface-2);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
   cursor: pointer;
-  transition: background-color var(--transition), border-color var(--transition);
+  transition: background-color var(--transition), color var(--transition);
 
-  &:hover { background: var(--surface-3); border-color: var(--border-strong); }
-  &:last-child { margin-bottom: 0; }
+  &:hover {
+    background: var(--surface-2);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--accent);
+    }
+  }
+
+  &:last-child { border-bottom: none; }
 
   &__name {
     font-size: var(--fs-sm);
@@ -236,11 +485,12 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 7px var(--sp-3);
+  padding: 7px 0 7px var(--sp-3);
   margin-bottom: var(--sp-3);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: var(--r-2);
+  /* Marked by an accent edge, not boxed in a tinted card. */
+  background: transparent;
+  border: none;
+  border-left: 2px solid var(--accent);
   color: var(--accent);
 
   &__text {
@@ -288,59 +538,72 @@
 .progress {
   height: 3px;
   margin-bottom: 6px;
-  border-radius: 999px;
+  border-radius: var(--r-1);
   background: var(--surface-3);
   overflow: hidden;
 
+  /* Scaled rather than resized: the fill repaints every generation, and width
+     animation would relayout the panel each time. */
   &__bar {
+    width: 100%;
     height: 100%;
+    transform: scaleX(0);
+    transform-origin: left center;
     background: var(--accent);
-    transition: width var(--transition);
+    transition: transform var(--transition);
   }
 }
 
 .progress__caption { margin-bottom: var(--sp-3); }
 
-/* ── Stage ────────────────────────────────────────────────── */
+/* ── Overlay layer ────────────────────────────────────────────
+   Everything here floats over the canvas, so the layer itself must not eat
+   pointer events; only its children take them back.
+   ──────────────────────────────────────────────────────────── */
 
 .stage {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
 
-  &__canvas {
-    position: relative;
-    flex: 1 1 auto;
-    min-height: 0;
-    background: var(--canvas-bg);
-    overflow: hidden;
-
-    canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-  }
+.stage__canvas {
+  position: absolute;
+  inset: 0;
 }
 
 .viewport-tools {
   position: absolute;
-  top: var(--sp-3);
   right: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
-  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  box-shadow: var(--shadow-overlay);
+  gap: 1px;
+  padding: 2px;
+  pointer-events: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  transition: bottom var(--transition);
+
+  /* The telemetry drawer keeps a 32px bar even when collapsed; the cluster sits above it. */
+  bottom: calc(32px + var(--sp-3));
+
+  .workspace.is-telemetry-open & { bottom: calc(268px + var(--sp-3)); }
+
+  /* While driving, the bottom of the canvas belongs to the HUD; the zoom
+     cluster steps up under the strip rather than sitting on top of it. */
+  .workspace.is-driving & {
+    top: calc(var(--strip-h) + var(--sp-3));
+    bottom: auto;
+  }
+
+  &__btn { width: 26px; height: 26px; }
 
   &__zoom {
-    min-width: 44px;
+    min-width: 42px;
+    padding: 0 2px;
     text-align: center;
     font-size: var(--fs-xs);
     color: var(--text-2);
@@ -348,118 +611,164 @@
 
   &__sep {
     width: 1px;
-    height: 18px;
-    margin: 0 3px;
+    height: 16px;
+    margin: 0 2px;
     background: var(--border);
   }
 }
 
 .viewport-hint {
   position: absolute;
-  left: 50%;
   top: 50%;
+  left: 50%;
   transform: translate(-50%, -50%);
-  padding: 8px 14px;
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--r-3);
+  max-width: 34ch;
+  padding: var(--sp-3) var(--sp-4);
+  text-align: center;
   pointer-events: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  font-size: var(--fs-md);
+  color: var(--text-2);
 
-  strong { color: var(--text-1); }
+  strong { color: var(--accent); font-weight: 600; }
 
   &--corner {
-    left: var(--sp-3);
     top: auto;
-    bottom: var(--sp-3);
+    left: var(--sp-3);
+    bottom: calc(32px + var(--sp-3));
     transform: none;
-    border-style: solid;
-    font-size: var(--fs-xs);
+    max-width: none;
+    padding: 3px 8px;
+    background: transparent;
+    border: none;
+    font-family: var(--font-cond);
+    font-size: var(--fs-sm);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--text-3);
+    transition: left var(--transition);
+
+    .workspace.is-docked & { left: calc(var(--rail-w) + var(--dock-w) + var(--sp-3)); }
   }
 }
 
 /* ── Telemetry drawer ─────────────────────────────────────── */
 
 .telemetry {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  min-height: 0;
-  height: 40vh;
+  height: 268px;
+  pointer-events: auto;
   background: var(--surface-1);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-strong);
+  transition: transform var(--transition), left var(--transition);
 
-  &.is-collapsed { height: auto; }
+  .workspace.is-docked & { left: calc(var(--rail-w) + var(--dock-w)); }
+
+  /* Collapsing slides the drawer off the bottom edge and leaves its 32px bar
+     behind; animating the height instead would relayout the panel every frame.
+     33px is the bar plus its own top rule; the overhang is clipped by the workspace. */
+  &.is-collapsed { transform: translateY(calc(100% - 33px)); }
 
   &__bar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--sp-3);
     flex-shrink: 0;
-    height: 34px;
-    padding: 0 var(--sp-2);
-    border-bottom: 1px solid transparent;
-  }
+    height: 32px;
+    padding: 0 var(--sp-3);
+    border-bottom: 1px solid var(--border);
 
-  &:not(.is-collapsed) &__bar { border-bottom-color: var(--border); }
+    .is-collapsed & { border-bottom: none; }
+  }
 
   &__toggle {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
-    height: 26px;
-    padding: 0 8px;
     border: none;
-    border-radius: var(--r-2);
     background: transparent;
     color: var(--text-2);
-    font-size: var(--fs-micro);
+    font-family: var(--font-cond);
+    font-size: var(--fs-md);
     font-weight: 600;
-    letter-spacing: 0.09em;
+    letter-spacing: 0.11em;
     text-transform: uppercase;
     cursor: pointer;
-    transition: background-color var(--transition), color var(--transition);
+    transition: color var(--transition);
 
-    &:hover { background: var(--surface-2); color: var(--text-1); }
+    &:hover { color: var(--text-1); }
   }
+
+  &__view-switch { width: auto; flex-shrink: 0; }
 
   &__body {
     flex: 1 1 auto;
     min-height: 0;
-    display: flex;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 900px) {
-  .workspace { flex-direction: column; }
+  .workspace { --rail-w: 46px; }
 
-  .sidebar {
-    flex: 0 0 auto;
-    width: 100%;
-    max-height: 42vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+  .strip {
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
   }
 
-  .telemetry { height: 34vh; }
-}
+  /* The strip stays put: on a phone it is the only place run state is legible.
+     It sheds fields instead of crushing them — everything dropped here is
+     already read off the panel it belongs to. */
+  .workspace.is-docked .strip { left: var(--rail-w); }
 
-.build-mode {
-  display: flex;
-  width: 100%;
-  margin-bottom: var(--sp-3);
+  .strip__field--wide,
+  .strip__rule--wide { display: none; }
 
-  .segmented__btn { flex: 1; }
-}
+  /* The panel fills the width left of the rail rather than covering it — swallowing
+     the rail would leave no way to switch panels or fold this one away. It also
+     starts below the strip so the session stays readable while a panel is open. */
+  .dock {
+    top: var(--strip-h);
+    left: var(--rail-w);
+    right: 0;
+    width: auto;
+    z-index: 4;
+    border-right: none;
+    border-left: 1px solid var(--border-strong);
+  }
 
-/* A file input styled as a button; the input itself is hidden inside the label. */
-.file-btn {
-  cursor: pointer;
-  margin-bottom: var(--sp-3);
+  /* The panel stops above the telemetry bar rather than burying it — on a phone
+     that bar is the only handle back to the run data. */
+  .dock { bottom: 32px; }
+  .workspace.is-telemetry-open .dock { bottom: 46vh; }
+
+  .dock__head { display: none; }
+
+  .dock-reopen { top: var(--strip-h); }
+
+  .telemetry { height: 46vh; }
+
+  /* Full width on a phone: the docked panel no longer sits beside it. */
+  .telemetry,
+  .workspace.is-docked .telemetry { left: 0; }
+
+  .workspace.is-telemetry-open .viewport-tools { bottom: calc(46vh + var(--sp-3)); }
+  .workspace.is-docked .viewport-hint--corner { left: var(--sp-3); }
+
+  /* Compact: the panel overlays the canvas, so the HUD only clears the rail. */
+  .workspace.is-docked .driver-hud-slot { left: calc(var(--rail-w) + var(--sp-3)); }
+  .workspace.is-telemetry-open .driver-hud-slot { bottom: calc(46vh + var(--sp-3)); }
 }
 
 /* ── Drive mode ─────────────────────────────────────────────── */
@@ -470,12 +779,19 @@
  */
 .driver-hud-slot {
   position: absolute;
-  left: var(--sp-3);
+  left: calc(var(--rail-w) + var(--sp-3));
   right: var(--sp-3);
-  bottom: var(--sp-3);
+  /* Clears the collapsed telemetry bar and the docked panel, the same way the
+     zoom cluster and the corner hint do — a readout hidden behind chrome is a
+     readout you never read. */
+  bottom: calc(32px + var(--sp-3));
   display: flex;
   justify-content: center;
   pointer-events: none;
+  transition: left var(--transition), bottom var(--transition);
+
+  .workspace.is-docked & { left: calc(var(--rail-w) + var(--dock-w) + var(--sp-3)); }
+  .workspace.is-telemetry-open & { bottom: calc(268px + var(--sp-3)); }
 }
 
 .drive__toggle {
@@ -514,8 +830,8 @@ kbd {
   min-width: 20px;
   height: 20px;
   padding: 0 5px;
+  /* A hairline box, not a moulded keycap: nothing else here fakes depth. */
   border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
   border-radius: var(--r-1);
   background: var(--surface-1);
   font-family: var(--font-mono);
@@ -586,4 +902,8 @@ kbd {
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-1);
+}
+
+@media (max-width: 620px) {
+  .strip__field--mid { display: none; }
 }

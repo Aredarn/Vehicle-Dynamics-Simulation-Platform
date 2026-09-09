@@ -1,0 +1,19 @@
+{
+  "surface": "src/components/track-view/track-view.component.ts",
+  "direction": "b54b6c67",
+  "directionForm": "The professional tool (canon, code-led)",
+  "build": {
+    "bundle": "main-BWWWOXZA.js",
+    "stylesheet": "styles-V76VOV6D.css",
+    "commit": "19b3065",
+    "configuration": "production"
+  },
+  "renderer": "headless Chrome (Google Chrome, C:/Program Files/Google/Chrome/Application/chrome.exe)",
+  "capturedAt": "2026-09-06T07:27:52",
+  "servedFrom": "dist/vdsp/browser over http://localhost:8099",
+  "viewport": "390x844",
+  "theme": "dark",
+  "state": "first run, landing on the canvas with the dock folded",
+  "method": "headless Chrome at 900x900 loading a wrapper page that hosts the app in a 390x844 iframe; cropped to the iframe box",
+  "note": "A direct --window-size=390,844 capture is not honest: headless Chrome on Windows enforces a minimum window width, so it renders wider and crops, which reads as broken layout. The iframe gives the app a true 390px viewport."
+}

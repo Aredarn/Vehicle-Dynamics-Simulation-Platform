@@ -51,6 +51,11 @@ export class DriverHudComponent {
   private readonly ARC_SWEEP = 270;
   readonly dialRadius = 52;
 
+  /** Lap completion as a clamped 0..1 fraction, for the bar to scale by. */
+  get lapProgress(): number {
+    return Math.min(1, Math.max(0, this.telemetry.progressRatio));
+  }
+
   get speedAngle(): number {
     return this.ARC_START + this.ARC_SWEEP * this.clamp01(this.telemetry.speedRatio);
   }

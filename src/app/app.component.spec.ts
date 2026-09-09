@@ -20,10 +20,21 @@ describe('AppComponent', () => {
     expect(app.title).toEqual('VDSP');
   });
 
-  it('should render the app title in the header', () => {
+  it('renders the workspace and nothing else', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.app-header__title')?.textContent).toContain('VDSP');
+    expect(compiled.querySelector('.app-shell > app-track-view')).toBeTruthy();
+  });
+
+  it('carries the product identity on the rail', () => {
+    // The shell is a bezel now: identity moved inside the workspace onto the
+    // rail, so the canvas can run edge to edge with no header above it.
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const mark = compiled.querySelector('.rail__mark');
+    expect(mark?.textContent?.trim()).toBe('VD');
+    expect(mark?.getAttribute('title')).toContain('VDSP');
   });
 });

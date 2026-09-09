@@ -1,22 +1,69 @@
-<div class="workspace">
-  <!-- ── Sidebar ─────────────────────────────────────────────── -->
-  <aside class="sidebar">
-    <nav class="tabs" role="tablist" aria-label="Workspace sections">
-      <button
-        *ngFor="let tab of tabs"
-        type="button"
-        role="tab"
-        class="tabs__tab"
-        [class.is-active]="activeTab === tab.id"
-        [attr.aria-selected]="activeTab === tab.id"
-        (click)="selectTab(tab.id)"
-      >
-        <app-icon [name]="tab.icon" [size]="15"></app-icon>
-        <span>{{ tab.label }}</span>
-      </button>
-    </nav>
+<div
+  class="workspace"
+  [class.is-docked]="!dockCollapsed"
+  [class.is-telemetry-open]="telemetryOpen"
+  [class.is-driving]="driveMode"
+>
 
-    <div class="sidebar__body">
+  <!-- The track is the ground: it runs edge to edge and everything else sits on it. -->
+  <canvas
+    #canvas
+    class="field"
+    (dragover)="onDragOver($event)"
+    (dragenter)="onDragEnter($event)"
+    (drop)="onDrop($event)"
+    (wheel)="onWheel($event)"
+    (mousedown)="onCanvasMouseDown($event)"
+    (mousemove)="onCanvasMouseMove($event)"
+    (mouseup)="onCanvasMouseUp()"
+    (contextmenu)="$event.preventDefault()"
+  >
+    Your browser does not support the canvas element.
+  </canvas>
+
+  <!-- ── Rail ────────────────────────────────────────────────── -->
+  <nav class="rail" role="tablist" aria-label="Workspace sections">
+    <span class="rail__mark" title="VDSP — Vehicle Dynamics Simulation Platform">VD</span>
+
+    <button
+      *ngFor="let tab of tabs"
+      type="button"
+      role="tab"
+      class="rail__tab"
+      [class.is-active]="activeTab === tab.id && !dockCollapsed"
+      [attr.aria-selected]="activeTab === tab.id"
+      [attr.title]="tab.label"
+      (click)="selectTab(tab.id)"
+    >
+      <app-icon [name]="tab.icon" [size]="17"></app-icon>
+      <span class="rail__label">{{ tab.label }}</span>
+    </button>
+
+    <span class="rail__gap"></span>
+
+    <button
+      *ngFor="let option of themeOptions"
+      type="button"
+      class="rail__theme"
+      [class.is-active]="themePreference === option.value"
+      [attr.aria-pressed]="themePreference === option.value"
+      [attr.title]="option.label + ' theme'"
+      (click)="setTheme(option.value)"
+    >
+      <app-icon [name]="option.icon" [size]="14"></app-icon>
+    </button>
+  </nav>
+
+  <!-- ── Docked panel ────────────────────────────────────────── -->
+  <aside class="dock" *ngIf="!dockCollapsed">
+    <header class="dock__head">
+      <h2 class="dock__title">{{ activeTabLabel }}</h2>
+      <button type="button" class="btn btn--icon" (click)="toggleDock()" title="Collapse panel" aria-label="Collapse panel">
+        <app-icon name="chevronRight" [size]="15"></app-icon>
+      </button>
+    </header>
+
+    <div class="dock__body">
       <!-- Car -->
       <app-car-settings *ngIf="activeTab === 'car'" [locked]="isDrift"></app-car-settings>
 
@@ -287,7 +334,7 @@
           </h3>
 
           <div class="progress">
-            <div class="progress__bar" [style.width.%]="(aiStats.generation / aiConfig.generations) * 100"></div>
+            <div class="progress__bar" [style.transform]="'scaleX(' + trainingProgress + ')'"></div>
           </div>
           <p class="hint progress__caption">
             Generation <span class="num">{{ aiStats.generation }}</span> of
@@ -415,23 +462,62 @@
     </div>
   </aside>
 
-  <!-- ── Canvas + telemetry ──────────────────────────────────── -->
+  <button
+    type="button"
+    class="dock-reopen"
+    *ngIf="dockCollapsed"
+    (click)="toggleDock()"
+    [attr.title]="'Open ' + activeTabLabel"
+  >
+    <app-icon name="chevronRight" [size]="15"></app-icon>
+  </button>
+
+  <!-- ── Session strip ───────────────────────────────────────── -->
+  <header class="strip" [attr.data-state]="sessionState">
+    <button class="btn strip__action" (click)="startAITraining()" [disabled]="isTraining || !hasTrack">
+      <app-icon name="play" [size]="14"></app-icon> {{ trainingLabel }}
+    </button>
+    <button class="btn btn--ghost strip__stop" (click)="stopAITraining()" [disabled]="!isTraining">
+      <app-icon name="stop" [size]="14"></app-icon> Stop
+    </button>
+
+    <span class="strip__rule"></span>
+
+    <div class="strip__field strip__field--wide">
+      <span class="strip__legend">Car</span>
+      <span class="strip__value">{{ activeCarModel }}</span>
+    </div>
+
+    <div class="strip__field strip__field--mid">
+      <span class="strip__legend">Objective</span>
+      <span class="strip__value strip__value--tag">{{ isDrift ? 'Drift' : 'Grip' }}</span>
+    </div>
+
+    <div class="strip__field strip__field--wide">
+      <span class="strip__legend">Track</span>
+      <span class="strip__value num">{{ trackLength }}</span>
+    </div>
+
+    <span class="strip__rule strip__rule--wide"></span>
+
+    <div class="strip__field strip__field--figure strip__field--mid">
+      <span class="strip__legend">Gen</span>
+      <span class="strip__value num">{{ aiStats.generation }}<span class="strip__of">/{{ aiConfig.generations }}</span></span>
+    </div>
+
+    <div class="strip__field strip__field--figure strip__field--wide">
+      <span class="strip__legend">Alive</span>
+      <span class="strip__value num">{{ aiStats.aliveCount }}</span>
+    </div>
+
+    <div class="strip__field strip__field--figure strip__field--lead">
+      <span class="strip__legend">{{ headlineLabel }}</span>
+      <span class="strip__value num">{{ headlineValue }}<span class="strip__of">{{ headlineUnit }}</span></span>
+    </div>
+  </header>
+
   <div class="stage">
     <div class="stage__canvas">
-      <canvas
-        #canvas
-        (dragover)="onDragOver($event)"
-        (dragenter)="onDragEnter($event)"
-        (drop)="onDrop($event)"
-        (wheel)="onWheel($event)"
-        (mousedown)="onCanvasMouseDown($event)"
-        (mousemove)="onCanvasMouseMove($event)"
-        (mouseup)="onCanvasMouseUp()"
-        (contextmenu)="$event.preventDefault()"
-      >
-        Your browser does not support the canvas element.
-      </canvas>
-
       <div class="viewport-tools">
         <button class="btn btn--icon viewport-tools__btn" (click)="zoomOut()" title="Zoom out">
           <app-icon name="minus" [size]="15"></app-icon>

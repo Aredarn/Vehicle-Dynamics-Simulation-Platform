@@ -85,7 +85,7 @@
     </div>
 
     <div class="progress">
-      <div class="progress__bar"><span [style.width.%]="telemetry.progressRatio * 100"></span></div>
+      <div class="progress__bar"><span [style.transform]="'scaleX(' + lapProgress + ')'"></span></div>
       <span class="progress__pct num">{{ telemetry.progressRatio * 100 | number: '1.0-0' }}%</span>
     </div>
 

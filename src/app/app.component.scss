@@ -1,92 +1,14 @@
+/* The shell is the instrument's bezel: it holds the workspace and nothing else.
+   Identity, session state and the theme control all live on the rail and strip
+   inside the workspace, where the canvas can run edge to edge behind them. */
+
 .app-shell {
   display: flex;
   flex-direction: column;
+  /* dvh so the telemetry bar is not parked under a phone's URL bar; the vh
+     line stays as the fallback for browsers that do not know dvh. */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--surface-0);
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  flex-shrink: 0;
-  height: var(--header-h);
-  padding: 0 var(--sp-4);
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--border);
-
-  &__brand {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    min-width: 0;
-  }
-
-  &__mark {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--r-2);
-    background: var(--accent);
-    color: var(--accent-contrast);
-    font-size: var(--fs-xs);
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-
-  &__names {
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
-    min-width: 0;
-  }
-
-  &__title {
-    font-size: var(--fs-md);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--text-1);
-  }
-
-  &__subtitle {
-    font-size: var(--fs-xs);
-    color: var(--text-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-  }
-
-  &__theme-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  &__theme-label {
-    @media (max-width: 720px) { display: none; }
-  }
-}
-
-app-track-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-}
-
-@media (max-width: 720px) {
-  .app-header {
-    padding: 0 var(--sp-3);
-
-    &__subtitle { display: none; }
-  }
 }

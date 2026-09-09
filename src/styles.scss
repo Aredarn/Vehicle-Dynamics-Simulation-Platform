@@ -1,16 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Barlow, Barlow Condensed and JetBrains Mono, self-hosted from public/fonts.
+   VDSP runs fully client-side on a local dev server: a Google Fonts @import is
+   a render-blocking third-party request, and offline it drops every legend and
+   every figure back to system-ui. Latin subset, SIL Open Font License. */
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-cond-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-cond-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-cond-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-700.woff2') format('woff2');
+}
 
 /* ==========================================================================
    Design tokens
-   Every colour in the app — including the track canvas — resolves through
-   these, so a theme switch needs no component-level branching.
+
+   An instrument, not a dashboard. Everything here follows three rules:
+   separation is a hairline or a gap and never a card; the accent means state
+   and nothing else; every figure is tabular so a column of numbers does not
+   jitter while a run is training.
    ========================================================================== */
 
 :root {
-  /* Shape: tight radii and hairline borders rather than soft shadows. */
-  --r-1: 2px;
-  --r-2: 4px;
-  --r-3: 6px;
+  /* Shape: square. A 2px radius is the most any control gets. */
+  --r-1: 0px;
+  --r-2: 2px;
+  --r-3: 2px;
 
   --sp-1: 4px;
   --sp-2: 8px;
@@ -19,7 +105,10 @@
   --sp-5: 24px;
   --sp-6: 32px;
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Condensed caps carry every label, the way an instrument panel legends its
+     controls: narrow enough to sit beside a value without crowding it. */
+  --font-cond: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   --fs-micro: 10px;
@@ -30,115 +119,115 @@
   --fs-xl: 20px;
   --fs-2xl: 28px;
 
-  --sidebar-w: 300px;
-  --header-h: 48px;
-  --transition: 140ms cubic-bezier(0.4, 0, 0.2, 1);
+  --rail-w: 52px;
+  --dock-w: 312px;
+  --strip-h: 44px;
+  --transition: 120ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Data series — used by charts and by the agent overlay. */
-  --data-1: #3b82f6;
-  --data-2: #10b981;
-  --data-3: #f59e0b;
-  --data-4: #a855f7;
-  --data-5: #ef4444;
+  /* Data series — charts and the agent overlay. */
+  --data-1: #FF6B35;
+  --data-2: #4CC9F0;
+  --data-3: #B5E48C;
+  --data-4: #F9C74F;
+  --data-5: #C77DFF;
 }
 
-/* ----- Dark (default) ----- */
+/* ----- Dark (default): the scene is a person watching a dark canvas for
+   minutes at a time, so the ground is the canvas and the chrome recedes. ----- */
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --surface-0: #0a0d12;
-  --surface-1: #0f131a;
-  --surface-2: #151a23;
-  --surface-3: #1c232e;
-  --surface-inset: #080a0e;
+  --surface-0: #0E1013;
+  --surface-1: #14171B;
+  --surface-2: #1A1E23;
+  --surface-3: #232830;
+  --surface-inset: #0A0C0E;
 
   --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.15);
 
-  --text-1: #e7edf5;
-  --text-2: #97a4b6;
-  --text-3: #66748a;
+  --text-1: #E6E9EC;
+  --text-2: #98A1AB;
+  --text-3: #838C97;   /* 5.3:1 on --surface-1, 4.9:1 on --surface-2 */
 
-  --accent: #4c8dff;
-  --accent-hover: #6ba1ff;
-  --accent-soft: rgba(76, 141, 255, 0.14);
-  --accent-contrast: #ffffff;
+  --accent: #FF6B35;
+  --accent-hover: #FF8354;
+  --accent-soft: rgba(255, 107, 53, 0.15);
+  --accent-contrast: #0E1013;
 
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --success: #35C26F;
+  --warning: #F5A524;
+  --danger: #F2555A;
 
-  --shadow-overlay: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --scrim: rgba(10, 12, 14, 0.92);
 
   /* Canvas */
-  --canvas-bg: #0a0d12;
-  --canvas-grid: #151b24;
-  --canvas-grid-major: #1d2530;
-  --canvas-road: #232c38;
-  --canvas-road-edge: #46536a;
-  --canvas-centerline: rgba(226, 232, 240, 0.28);
-  --canvas-kerb-a: #cbd5e1;
-  --canvas-kerb-b: #64748b;
-  /* Corner kerbs — the classic red/white rumble strip. */
-  --canvas-curb-a: #e2e8f0;
-  --canvas-curb-b: #c0392f;
-  --canvas-line: #22c55e;
-  --canvas-line-alt: #38bdf8;
-  --canvas-agent: #f4c14e;
-  --canvas-agent-dead: #7f3f45;
-  /* The human driver, kept distinct from the AI's amber so the two lines never read alike. */
-  --canvas-player: #38bdf8;
-  --canvas-player-line: #0ea5e9;
-  --canvas-text: #e2e8f0;
+  --canvas-bg: #0E1013;
+  --canvas-grid: #161A1F;
+  --canvas-grid-major: #1E242B;
+  --canvas-road: #262C34;
+  --canvas-road-edge: #4A545F;
+  --canvas-centerline: rgba(230, 233, 236, 0.26);
+  --canvas-kerb-a: #CBD5E1;
+  --canvas-kerb-b: #64748B;
+  --canvas-curb-a: #E6E9EC;
+  --canvas-curb-b: #C0392F;
+  --canvas-line: #35C26F;
+  --canvas-line-alt: #4CC9F0;
+  --canvas-player: #FF6B35;
+  --canvas-player-line: #FF8354;
+  --canvas-agent: #F9C74F;
+  --canvas-agent-dead: #6B4A3A;
+  --canvas-text: #E6E9EC;
 }
 
-/* ----- Light ----- */
+/* ----- Light: the same instrument read in daylight. Warm paper rather than
+   office white, so it reads as a printed sheet and not as a web app. ----- */
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --surface-0: #eef1f6;
-  --surface-1: #ffffff;
-  --surface-2: #f4f6fa;
-  --surface-3: #e7ecf3;
-  --surface-inset: #e9edf3;
+  --surface-0: #E9E6E0;
+  --surface-1: #F4F2ED;
+  --surface-2: #EAE7E1;
+  --surface-3: #DEDAD2;
+  --surface-inset: #DCD8D0;
 
-  --border: rgba(15, 23, 42, 0.1);
-  --border-strong: rgba(15, 23, 42, 0.2);
+  --border: rgba(22, 24, 27, 0.13);
+  --border-strong: rgba(22, 24, 27, 0.26);
 
-  --text-1: #0d1626;
-  --text-2: #4a5768;
-  --text-3: #78859a;
+  --text-1: #16181B;
+  --text-2: #4E555D;
+  --text-3: #5F666E;   /* 5.2:1 on --surface-1, 4.7:1 on --surface-2 */
 
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-soft: rgba(37, 99, 235, 0.1);
-  --accent-contrast: #ffffff;
+  --accent: #B23B0A;   /* 5.3:1 on --surface-1, 4.8:1 on --surface-2 */
+  --accent-hover: #9A3412;
+  --accent-soft: rgba(178, 59, 10, 0.12);
+  --accent-contrast: #FFFFFF;
 
-  --success: #059669;
-  --warning: #b45309;
-  --danger: #dc2626;
+  --success: #15803D;
+  --warning: #A16207;
+  --danger: #B91C1C;
 
-  --shadow-overlay: 0 8px 28px rgba(15, 23, 42, 0.16);
+  --scrim: rgba(244, 242, 237, 0.94);
 
-  /* Canvas — the track stays dark-on-light but keeps asphalt readable. */
-  --canvas-bg: #e4e9f1;
-  --canvas-grid: #d6dde7;
-  --canvas-grid-major: #c4cedc;
-  --canvas-road: #7c8798;
-  --canvas-road-edge: #ffffff;
-  --canvas-centerline: rgba(255, 255, 255, 0.75);
-  --canvas-kerb-a: #ffffff;
-  --canvas-kerb-b: #b91c1c;
-  --canvas-curb-a: #f8fafc;
-  --canvas-curb-b: #dc2626;
-  --canvas-line: #15803d;
-  --canvas-line-alt: #0369a1;
-  --canvas-agent: #b45309;
-  --canvas-agent-dead: #b91c1c;
-  --canvas-player: #0369a1;
-  --canvas-player-line: #0284c7;
-  --canvas-text: #f8fafc;
+  --canvas-bg: #DCD8D0;
+  --canvas-grid: #D2CDC4;
+  --canvas-grid-major: #C3BDB2;
+  --canvas-road: #8A8981;
+  --canvas-road-edge: #F4F2ED;
+  --canvas-centerline: rgba(255, 255, 255, 0.72);
+  --canvas-kerb-a: #FFFFFF;
+  --canvas-kerb-b: #B91C1C;
+  --canvas-curb-a: #F8FAFC;
+  --canvas-curb-b: #DC2626;
+  --canvas-line: #15803D;
+  --canvas-line-alt: #0369A1;
+  --canvas-player: #C2410C;
+  --canvas-player-line: #9A3412;
+  --canvas-agent: #A16207;
+  --canvas-agent-dead: #B91C1C;
+  --canvas-text: #F8FAFC;
 }
 
 /* ==========================================================================
@@ -179,21 +268,37 @@ p { margin: 0; }
 
 button { font-family: inherit; color: inherit; }
 
+/* ==========================================================================
+   Browser surfaces
+
+   The parts not drawn by hand still belong to the instrument: selection, the
+   caret, scrollbars and the focus ring all ship with defaults that match no
+   design system, so they are themed from the palette like everything else.
+   ========================================================================== */
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+:root { caret-color: var(--accent); accent-color: var(--accent); }
+
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-1);
+  outline-offset: 1px;
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-track { background: var(--surface-inset); }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border: 3px solid transparent;
-  background-clip: content-box;
-  border-radius: 999px;
+  background: var(--surface-3);
+  border: 2px solid var(--surface-inset);
 }
-::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::-webkit-scrollbar-corner { background: var(--surface-inset); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--surface-3) var(--surface-inset); }
 
 /**
  * Applied for a single frame while the theme is swapped.
@@ -229,10 +334,12 @@ button { font-family: inherit; color: inherit; }
   font-feature-settings: 'tnum' 1;
 }
 
+/* The instrument's legend: condensed caps, used for every control label. */
 .eyebrow {
-  font-size: var(--fs-micro);
+  font-family: var(--font-cond);
+  font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-3);
 }
@@ -248,31 +355,53 @@ button { font-family: inherit; color: inherit; }
   gap: 6px;
   height: 30px;
   padding: 0 12px;
-  border: 1px solid transparent;
+  border: 1px solid var(--accent);
   border-radius: var(--r-2);
   background: var(--accent);
   color: var(--accent-contrast);
-  font-size: var(--fs-sm);
-  font-weight: 500;
+  font-family: var(--font-cond);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--transition), border-color var(--transition), color var(--transition);
 
-  &:hover:not(:disabled) { background: var(--accent-hover); }
-  &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+  &:disabled { cursor: not-allowed; }
+
+  /* Only the filled variant is re-skinned: white on 38%-opacity accent lands
+     near 2:1, and that is the state the app opens in. Outline it and keep the
+     accent for a button that can actually be pressed. The transparent variants
+     already have nothing to fade to, so they keep the opacity treatment below —
+     and must not inherit a border they never had. */
+  &:disabled:not(&--ghost):not(&--quiet):not(&--icon):not(&--danger) {
+    background: transparent;
+    border-color: var(--border-strong);
+    /* Dimmer than an enabled ghost button's text-1, so an outlined disabled
+       control still reads as unavailable rather than merely quiet. */
+    color: var(--text-3);
+  }
 
   &--ghost {
-    background: var(--surface-2);
+    background: transparent;
     border-color: var(--border-strong);
     color: var(--text-1);
-    &:hover:not(:disabled) { background: var(--surface-3); }
+    &:hover:not(:disabled) { background: var(--surface-2); border-color: var(--text-3); }
   }
+
+  &--ghost:disabled,
+  &--quiet:disabled,
+  &--icon:disabled,
+  &--danger:disabled { opacity: 0.45; }
 
   &--quiet {
     background: transparent;
     border-color: transparent;
     color: var(--text-2);
-    &:hover:not(:disabled) { background: var(--surface-3); color: var(--text-1); }
+    &:hover:not(:disabled) { background: var(--surface-2); color: var(--text-1); }
   }
 
   &--danger {
@@ -283,7 +412,7 @@ button { font-family: inherit; color: inherit; }
   }
 
   &--block { width: 100%; }
-  &--sm { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+  &--sm { height: 24px; padding: 0 8px; font-size: var(--fs-sm); }
 
   &--icon {
     width: 30px;
@@ -291,7 +420,7 @@ button { font-family: inherit; color: inherit; }
     background: transparent;
     border-color: transparent;
     color: var(--text-2);
-    &:hover:not(:disabled) { background: var(--surface-3); color: var(--text-1); }
+    &:hover:not(:disabled) { background: var(--surface-2); color: var(--text-1); }
   }
 }
 
@@ -299,21 +428,21 @@ input[type='text'],
 input[type='number'],
 select {
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: 26px;
+  padding: 0 7px;
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   color: var(--text-1);
-  background: var(--surface-2);
+  background: var(--surface-inset);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-2);
   outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: border-color var(--transition), background-color var(--transition);
 
   &:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    background: var(--surface-2);
   }
 }
 
@@ -321,10 +450,10 @@ select {
   font-family: var(--font-sans);
   cursor: pointer;
   appearance: none;
-  padding-right: 26px;
+  padding-right: 24px;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
                     linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 14px) 12px, calc(100% - 9px) 12px;
+  background-position: calc(100% - 13px) 11px, calc(100% - 8px) 11px;
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
 }
@@ -333,58 +462,64 @@ input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 3px;
+  height: 2px;
   background: var(--surface-3);
-  border-radius: 999px;
   outline: none;
   cursor: pointer;
 
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 13px;
-    height: 13px;
-    border-radius: 50%;
+    width: 4px;
+    height: 15px;
+    border-radius: 0;
     background: var(--accent);
-    border: 2px solid var(--surface-1);
+    border: none;
     cursor: pointer;
-    transition: transform var(--transition);
   }
-  &:hover::-webkit-slider-thumb { transform: scale(1.12); }
 
   &::-moz-range-thumb {
-    width: 13px;
-    height: 13px;
-    border: 2px solid var(--surface-1);
-    border-radius: 50%;
+    width: 4px;
+    height: 15px;
+    border: none;
+    border-radius: 0;
     background: var(--accent);
     cursor: pointer;
   }
-  &::-moz-range-track { height: 3px; background: var(--surface-3); border-radius: 999px; }
+  &::-moz-range-track { height: 2px; background: var(--surface-3); }
 }
 
-/* Segmented toggle */
+/* Segmented toggle — hairline cells, the active one taking the accent. */
 .segmented {
   display: inline-flex;
-  padding: 2px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  width: 100%;
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-2);
+  overflow: hidden;
 
   &__btn {
     flex: 1;
-    height: 24px;
-    padding: 0 10px;
+    height: 26px;
+    padding: 0 8px;
     border: none;
-    border-radius: var(--r-1);
+    border-left: 1px solid var(--border-strong);
     background: transparent;
     color: var(--text-2);
-    font-size: var(--fs-xs);
-    font-weight: 500;
+    font-family: var(--font-cond);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     cursor: pointer;
     transition: background-color var(--transition), color var(--transition);
 
-    &:hover { color: var(--text-1); }
-    &.is-active { background: var(--surface-0); color: var(--text-1); box-shadow: 0 1px 2px rgba(0,0,0,0.18); }
+    &:first-child { border-left: none; }
+    &:hover:not(:disabled) { color: var(--text-1); background: var(--surface-2); }
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    &.is-active {
+      background: var(--accent);
+      color: var(--accent-contrast);
+    }
   }
 }
 
@@ -403,22 +538,24 @@ input[type='range'] {
     align-items: center;
     justify-content: space-between;
     margin-bottom: var(--sp-3);
-    font-size: var(--fs-micro);
+    font-family: var(--font-cond);
+    font-size: var(--fs-md);
     font-weight: 600;
-    letter-spacing: 0.09em;
+    letter-spacing: 0.11em;
     text-transform: uppercase;
-    color: var(--text-3);
+    color: var(--text-2);
   }
 }
 
-/* Readout tile — the primary way numbers are shown. */
+/* A read-out on the instrument: legend left, figure right, hairline beneath. */
 .stat {
   min-width: 0;
 
   &__label {
-    font-size: var(--fs-micro);
+    font-family: var(--font-cond);
+    font-size: var(--fs-xs);
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.11em;
     text-transform: uppercase;
     color: var(--text-3);
     white-space: nowrap;
@@ -430,37 +567,38 @@ input[type='range'] {
     display: flex;
     align-items: baseline;
     gap: 3px;
-    margin-top: 2px;
+    margin-top: 1px;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     font-size: var(--fs-lg);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-1);
     letter-spacing: -0.02em;
   }
 
   &__unit {
     font-size: var(--fs-xs);
-    font-weight: 500;
+    font-weight: 400;
     color: var(--text-3);
   }
 
-  &--lg &__value { font-size: var(--fs-2xl); }
+  &--lg &__value { font-size: var(--fs-2xl); font-weight: 700; }
   &--accent &__value { color: var(--accent); }
 }
 
 .stat-grid {
   display: grid;
-  gap: var(--sp-3);
+  gap: var(--sp-3) var(--sp-4);
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
 }
 
 .divider { height: 1px; background: var(--border); }
 
 .hint {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--text-3);
   line-height: 1.5;
+  max-width: 68ch;
 }
 
 .empty {
@@ -473,6 +611,13 @@ input[type='range'] {
   text-align: center;
   color: var(--text-3);
 
-  &__title { font-size: var(--fs-md); font-weight: 500; color: var(--text-2); }
-  &__hint { font-size: var(--fs-xs); max-width: 34ch; }
+  &__title {
+    font-family: var(--font-cond);
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  &__hint { font-size: var(--fs-sm); max-width: 34ch; }
 }

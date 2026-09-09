@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-06T00:00:00Z",
+  "title": "Design System: VDSP",
+  "extensions": {
+    "colorMeta": {
+      "canvas-ground": {
+        "role": "neutral",
+        "displayName": "Canvas Ground",
+        "canonical": "#0E1013",
+        "tonalRamp": ["#07080A", "#0E1013", "#14171B", "#1A1E23", "#232830", "#3A414B", "#6C7681", "#C6CCD3"]
+      },
+      "chrome": {
+        "role": "neutral",
+        "displayName": "Chrome",
+        "canonical": "#14171B",
+        "tonalRamp": ["#090A0C", "#0E1013", "#14171B", "#1A1E23", "#232830", "#39414B", "#6B7581", "#C5CBD2"]
+      },
+      "chrome-raised": {
+        "role": "neutral",
+        "displayName": "Chrome Raised",
+        "canonical": "#1A1E23",
+        "tonalRamp": ["#0A0C0E", "#111417", "#1A1E23", "#232830", "#2E353E", "#454E59", "#7A8590", "#CED4DA"]
+      },
+      "chrome-line": {
+        "role": "neutral",
+        "displayName": "Chrome Line",
+        "canonical": "#232830",
+        "tonalRamp": ["#0C0E11", "#151920", "#1D222A", "#232830", "#333A45", "#4C5561", "#828C99", "#D2D7DD"]
+      },
+      "inset-well": {
+        "role": "neutral",
+        "displayName": "Inset Well",
+        "canonical": "#0A0C0E",
+        "tonalRamp": ["#050607", "#0A0C0E", "#0E1013", "#14171B", "#1F242A", "#343B44", "#68727C", "#C3C9D0"]
+      },
+      "accent-amber": {
+        "role": "primary",
+        "displayName": "Signal Amber",
+        "canonical": "#FF6B35",
+        "tonalRamp": ["#3D1305", "#5C1D08", "#7E2A0C", "#A33810", "#C74A18", "#E75D25", "#FF6B35", "#FFB496"]
+      },
+      "accent-rust": {
+        "role": "primary",
+        "displayName": "Signal Rust (light theme)",
+        "canonical": "#B23B0A",
+        "tonalRamp": ["#2E0F02", "#471804", "#5F2106", "#7A2B08", "#96350A", "#B23B0A", "#D8571F", "#F0A484"]
+      },
+      "text-1": {
+        "role": "neutral",
+        "displayName": "Readout White",
+        "canonical": "#E6E9EC",
+        "tonalRamp": ["#212528", "#3A3F44", "#545A60", "#6F757C", "#8B9199", "#A9AFB6", "#C7CCD1", "#E6E9EC"]
+      },
+      "text-2": {
+        "role": "neutral",
+        "displayName": "Legend Grey",
+        "canonical": "#98A1AB",
+        "tonalRamp": ["#191D21", "#2C3238", "#414850", "#586069", "#707983", "#8A939D", "#98A1AB", "#D2D8DE"]
+      },
+      "text-3": {
+        "role": "neutral",
+        "displayName": "Quiet Grey",
+        "canonical": "#838C97",
+        "tonalRamp": ["#15181C", "#252A30", "#373D45", "#4B525B", "#606872", "#767F89", "#838C97", "#C8CED5"]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Live Green",
+        "canonical": "#35C26F",
+        "tonalRamp": ["#052D16", "#084423", "#0C5C31", "#107540", "#178F50", "#22A961", "#35C26F", "#8FE3B4"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Caution Amber",
+        "canonical": "#F5A524",
+        "tonalRamp": ["#3A2503", "#573806", "#754C0A", "#94610F", "#B37715", "#D28E1B", "#F5A524", "#FAD08F"]
+      },
+      "danger": {
+        "role": "secondary",
+        "displayName": "Fault Red",
+        "canonical": "#F2555A",
+        "tonalRamp": ["#3B0B0D", "#591316", "#781C20", "#98262A", "#B83236", "#D64246", "#F2555A", "#F9A9AC"]
+      },
+      "paper-chrome": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#F4F2ED",
+        "tonalRamp": ["#2A2823", "#433F38", "#5D584F", "#787268", "#948D82", "#B3ACA0", "#D4CDC2", "#F4F2ED"]
+      },
+      "data-2": {
+        "role": "tertiary",
+        "displayName": "Series Cyan",
+        "canonical": "#4CC9F0",
+        "tonalRamp": ["#062733", "#093C4E", "#0D536B", "#126B89", "#1985A9", "#28A2C9", "#4CC9F0", "#A8E5F8"]
+      },
+      "data-3": {
+        "role": "tertiary",
+        "displayName": "Series Lime",
+        "canonical": "#B5E48C",
+        "tonalRamp": ["#22340F", "#334D18", "#456722", "#58822D", "#6D9E3A", "#8ABF5B", "#B5E48C", "#D8F1C1"]
+      },
+      "data-4": {
+        "role": "tertiary",
+        "displayName": "Series Sand",
+        "canonical": "#F9C74F",
+        "tonalRamp": ["#3B2B05", "#584108", "#76580C", "#957011", "#B48917", "#D5A429", "#F9C74F", "#FCE0A4"]
+      },
+      "data-5": {
+        "role": "tertiary",
+        "displayName": "Series Violet",
+        "canonical": "#C77DFF",
+        "tonalRamp": ["#2C0B44", "#421266", "#591A88", "#7124A9", "#8B33C6", "#A855E3", "#C77DFF", "#E3BDFF"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display Figure", "purpose": "The single largest figure in a panel — a run's summary readout. JetBrains Mono, tabular." },
+      "headline": { "displayName": "Lead Figure", "purpose": "The figure the session is judged on, right-aligned in the session strip, in the accent. One per screen." },
+      "title": { "displayName": "Panel Title", "purpose": "Docked panel title and, at 13px/0.11em, section titles and the telemetry toggle. Barlow Condensed uppercase." },
+      "body": { "displayName": "Body", "purpose": "Default running text, strip values, canvas hint. Hints cap at 68ch." },
+      "body-small": { "displayName": "Row Text", "purpose": "Property-row labels and values inside panels." },
+      "label": { "displayName": "Legend", "purpose": "Control legends and stat labels. Barlow Condensed uppercase at text-3." },
+      "label-micro": { "displayName": "Micro Legend", "purpose": "Rail tab names, strip legends, table headers, HUD block titles. The 10px floor." },
+      "figure": { "displayName": "Figure", "purpose": "Every number in the interface: stat values, field contents, table cells, HUD readouts, keycaps." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "transition", "value": "120ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "The only duration and curve in the system. Applied to color, border-color and transform." },
+      { "name": "drawer-collapse", "value": "transform: translateY(calc(100% - 33px))", "purpose": "Telemetry drawer collapse: slides off the bottom edge leaving its 32px bar. Height is never animated." },
+      { "name": "bar-fill", "value": "transform: scaleX(<0..1>); transform-origin: left center", "purpose": "Progress and meter fills. Scaled, never resized, so a generation tick does not relayout the panel." },
+      { "name": "live-pulse", "value": "opacity 1 -> 0.3 -> 1 over 1.6s ease-in-out infinite", "purpose": "The 6px status dot while a run is live. The only looping animation in the app." },
+      { "name": "reduced-motion", "value": "animation-duration: 0.01ms; transition-duration: 0.01ms", "purpose": "prefers-reduced-motion collapses all motion." },
+      { "name": "theme-swap", "value": ":root.theme-switching * { transition: none !important }", "purpose": "Applied for a single frame across a theme swap so custom-property-derived values re-resolve." }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "900px" },
+      { "name": "narrow", "value": "620px" }
+    ],
+    "chromeInsets": [
+      { "name": "rail", "value": "52px", "compact": "46px" },
+      { "name": "dock", "value": "312px", "compact": "overlay, width auto" },
+      { "name": "strip", "value": "44px" },
+      { "name": "telemetry-open", "value": "268px", "compact": "46vh" },
+      { "name": "telemetry-collapsed", "value": "32px bar" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled control on a surface — start a run, confirm an action.",
+      "html": "<button class=\"ds-btn\">TRAIN AI</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--accent, #FF6B35); border-radius: 2px; background: var(--accent, #FF6B35); color: var(--accent-contrast, #0E1013); font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.4,0,0.2,1), border-color 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-btn:hover { background: var(--accent-hover, #FF8354); border-color: var(--accent-hover, #FF8354); } .ds-btn:focus-visible { outline: 2px solid var(--accent, #FF6B35); outline-offset: 1px; border-radius: 0; } .ds-btn:disabled { cursor: not-allowed; background: transparent; border-color: var(--border-strong, rgba(255,255,255,0.15)); color: var(--text-3, #838C97); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "The default secondary control: outlined, unfilled, same 30px rhythm as the primary.",
+      "html": "<button class=\"ds-btn-ghost\">EXPORT</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--border-strong, rgba(255,255,255,0.15)); border-radius: 2px; background: transparent; color: var(--text-1, #E6E9EC); font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: background-color 120ms cubic-bezier(0.4,0,0.2,1), border-color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-ghost:hover { background: var(--surface-2, #1A1E23); border-color: var(--text-3, #838C97); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--accent, #FF6B35); outline-offset: 1px; } .ds-btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "A numeric or text field sunk into the panel: 26px, tabular monospace, opens rather than glows on focus.",
+      "html": "<input class=\"ds-input\" type=\"text\" value=\"1450\" aria-label=\"Mass\" />",
+      "css": ".ds-input { width: 100%; height: 26px; padding: 0 7px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-1, #E6E9EC); background: var(--surface-inset, #0A0C0E); border: 1px solid var(--border-strong, rgba(255,255,255,0.15)); border-radius: 2px; outline: none; transition: border-color 120ms cubic-bezier(0.4,0,0.2,1), background-color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-input:hover { border-color: var(--text-3, #838C97); } .ds-input:focus { border-color: var(--accent, #FF6B35); background: var(--surface-2, #1A1E23); }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "chip",
+      "refersTo": "segmented-cell",
+      "description": "The app's primary mode switch — build mode, objective, telemetry view. One box, hairline dividers, accent on the active cell.",
+      "html": "<div class=\"ds-seg\"><button class=\"ds-seg__btn is-active\">PIECES</button><button class=\"ds-seg__btn\">DRAW</button><button class=\"ds-seg__btn\">IMAGE</button></div>",
+      "css": ".ds-seg { display: inline-flex; width: 100%; border: 1px solid var(--border-strong, rgba(255,255,255,0.15)); border-radius: 2px; overflow: hidden; } .ds-seg__btn { flex: 1; height: 26px; padding: 0 8px; border: none; border-left: 1px solid var(--border-strong, rgba(255,255,255,0.15)); background: transparent; color: var(--text-2, #98A1AB); font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: background-color 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-seg__btn:first-child { border-left: none; } .ds-seg__btn:hover { color: var(--text-1, #E6E9EC); background: var(--surface-2, #1A1E23); } .ds-seg__btn:focus-visible { outline: 2px solid var(--accent, #FF6B35); outline-offset: -2px; } .ds-seg__btn.is-active { background: var(--accent, #FF6B35); color: var(--accent-contrast, #0E1013); }"
+    },
+    {
+      "name": "Icon Rail Tab",
+      "kind": "nav",
+      "refersTo": "rail-tab",
+      "description": "The workspace's only navigation: a 52px column of 54px tabs, active marked by a 2px accent bar and accent label, never a filled tile.",
+      "html": "<nav class=\"ds-rail\"><button class=\"ds-rail__tab is-active\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6.5 4.5h7a4 4 0 0 1 0 8h-7a3 3 0 0 0 0 6h8\"/></svg><span class=\"ds-rail__label\">TRACK</span></button><button class=\"ds-rail__tab\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"6.5\" y=\"6.5\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3.5\" y=\"3.5\" width=\"13\" height=\"13\" rx=\"2\"/><path d=\"M7.5 1.5v2M12.5 1.5v2M7.5 16.5v2M12.5 16.5v2M1.5 7.5h2M1.5 12.5h2M16.5 7.5h2M16.5 12.5h2\"/></svg><span class=\"ds-rail__label\">TRAINING</span></button></nav>",
+      "css": ".ds-rail { display: flex; flex-direction: column; width: 52px; background: var(--surface-1, #14171B); border-right: 1px solid var(--border, rgba(255,255,255,0.07)); } .ds-rail__tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 54px; padding: 0 2px; border: none; border-bottom: 1px solid var(--border, rgba(255,255,255,0.07)); background: transparent; color: var(--text-3, #838C97); cursor: pointer; transition: color 120ms cubic-bezier(0.4,0,0.2,1), background-color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-rail__label { font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; } .ds-rail__tab:hover { color: var(--text-1, #E6E9EC); background: var(--surface-2, #1A1E23); } .ds-rail__tab:focus-visible { outline: 2px solid var(--accent, #FF6B35); outline-offset: -2px; } .ds-rail__tab.is-active { color: var(--accent, #FF6B35); background: var(--surface-2, #1A1E23); } .ds-rail__tab.is-active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent, #FF6B35); }"
+    },
+    {
+      "name": "Property Row",
+      "kind": "custom",
+      "refersTo": "property-row",
+      "description": "The unit panels are built from: label left, figure right, hairline beneath, 2px accent bar on hover. Replaces cards everywhere in this system.",
+      "html": "<div class=\"ds-rows\"><button class=\"ds-row\"><span class=\"ds-row__label\">Medium Straight</span><span class=\"ds-row__meta\">50 m</span></button><button class=\"ds-row\"><span class=\"ds-row__label\">Fast Sweep</span><span class=\"ds-row__meta\">30&deg;</span></button><button class=\"ds-row\"><span class=\"ds-row__label\">Hairpin</span><span class=\"ds-row__meta\">90&deg;</span></button></div>",
+      "css": ".ds-rows { display: flex; flex-direction: column; } .ds-row { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 7px 8px 7px 0; border: none; border-bottom: 1px solid var(--border, rgba(255,255,255,0.07)); background: transparent; color: var(--text-2, #98A1AB); cursor: grab; text-align: left; transition: background-color 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-row:last-child { border-bottom: none; } .ds-row:hover { background: var(--surface-2, #1A1E23); color: var(--text-1, #E6E9EC); } .ds-row:hover::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent, #FF6B35); } .ds-row:focus-visible { outline: 2px solid var(--accent, #FF6B35); outline-offset: -2px; } .ds-row__label { font-family: Barlow, system-ui, sans-serif; font-size: 12px; color: var(--text-1, #E6E9EC); } .ds-row__meta { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 10px; color: var(--text-3, #838C97); }"
+    },
+    {
+      "name": "Stat Readout",
+      "kind": "card",
+      "refersTo": "data-row",
+      "description": "A readout on the instrument: condensed legend above a tabular figure. The accent variant is reserved for the figure a run is judged on.",
+      "html": "<div class=\"ds-stats\"><div class=\"ds-stat\"><div class=\"ds-stat__label\">BEST LAP</div><div class=\"ds-stat__value ds-stat--accent\">1:12.884<span class=\"ds-stat__unit\">s</span></div></div><div class=\"ds-stat\"><div class=\"ds-stat__label\">GEN</div><div class=\"ds-stat__value\">42<span class=\"ds-stat__unit\">/60</span></div></div></div>",
+      "css": ".ds-stats { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); } .ds-stat__label { font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3, #838C97); white-space: nowrap; } .ds-stat__value { display: flex; align-items: baseline; gap: 3px; margin-top: 1px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 500; letter-spacing: -0.02em; color: var(--text-1, #E6E9EC); } .ds-stat--accent { color: var(--accent, #FF6B35); } .ds-stat__unit { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 11px; font-weight: 400; color: var(--text-3, #838C97); }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "data-row",
+      "description": "Generation-by-generation results: 26px raised head in micro caps, 26px rows, figures right-aligned, selection marked by a 2px accent left border.",
+      "html": "<div class=\"ds-table\"><div class=\"ds-table__head\"><span>GEN</span><span>BEST</span><span>AVG</span></div><div class=\"ds-table__row is-active\"><span>07</span><span>1:14.402</span><span>1:18.910</span></div><div class=\"ds-table__row\"><span>08</span><span>1:13.771</span><span>1:17.446</span></div></div>",
+      "css": ".ds-table { display: flex; flex-direction: column; border: 1px solid var(--border, rgba(255,255,255,0.07)); border-radius: 2px; overflow: hidden; } .ds-table__head, .ds-table__row { display: grid; grid-template-columns: 44px 1fr 1fr; gap: 8px; align-items: center; padding: 0 12px; } .ds-table__head { height: 26px; background: var(--surface-2, #1A1E23); border-bottom: 1px solid var(--border, rgba(255,255,255,0.07)); font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3, #838C97); } .ds-table__head span:not(:first-child), .ds-table__row span:not(:first-child) { text-align: right; } .ds-table__row { height: 26px; border-left: 2px solid transparent; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-2, #98A1AB); cursor: pointer; transition: background-color 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1); } .ds-table__row span:first-child { color: var(--text-3, #838C97); } .ds-table__row:hover { background: var(--surface-2, #1A1E23); color: var(--text-1, #E6E9EC); } .ds-table__row.is-active { border-left-color: var(--accent, #FF6B35); background: var(--surface-2, #1A1E23); color: var(--text-1, #E6E9EC); }"
+    },
+    {
+      "name": "Session Strip",
+      "kind": "nav",
+      "refersTo": "headline",
+      "description": "The 44px band over the canvas: primary action left, hairline-separated label-over-value fields, the judged figure pushed right in the accent.",
+      "html": "<div class=\"ds-strip\"><button class=\"ds-strip__action\">TRAIN AI</button><span class=\"ds-strip__rule\"></span><div class=\"ds-strip__field\"><span class=\"ds-strip__legend\">CAR</span><span class=\"ds-strip__value\">Sport Sedan</span></div><span class=\"ds-strip__rule\"></span><div class=\"ds-strip__field\"><span class=\"ds-strip__legend\">OBJECTIVE</span><span class=\"ds-strip__value ds-strip__value--tag\">GRIP</span></div><div class=\"ds-strip__field ds-strip__field--lead\"><span class=\"ds-strip__legend\">BEST LAP</span><span class=\"ds-strip__value ds-strip__value--lead\">1:12.884</span></div></div>",
+      "css": ".ds-strip { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px 0 12px; background: var(--surface-1, #14171B); border-bottom: 1px solid var(--border, rgba(255,255,255,0.07)); overflow: hidden; } .ds-strip__action { height: 30px; padding: 0 12px; border: 1px solid var(--accent, #FF6B35); border-radius: 2px; background: var(--accent, #FF6B35); color: var(--accent-contrast, #0E1013); font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; } .ds-strip__rule { flex-shrink: 0; width: 1px; height: 20px; background: var(--border, rgba(255,255,255,0.07)); } .ds-strip__field { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; } .ds-strip__legend { font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3, #838C97); white-space: nowrap; } .ds-strip__value { font-family: Barlow, system-ui, sans-serif; font-size: 13px; font-weight: 500; color: var(--text-1, #E6E9EC); white-space: nowrap; } .ds-strip__value--tag { font-family: 'Barlow Condensed', Barlow, system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent, #FF6B35); } .ds-strip__field--lead { margin-left: auto; align-items: flex-end; padding-left: 16px; text-align: right; } .ds-strip__value--lead { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--accent, #FF6B35); }"
+    },
+    {
+      "name": "Progress Bar",
+      "kind": "custom",
+      "refersTo": "data-row",
+      "description": "Generation progress: a 3px groove with an accent fill scaled by transform, never resized.",
+      "html": "<div class=\"ds-progress\"><div class=\"ds-progress__bar\" style=\"transform: scaleX(0.62)\"></div></div>",
+      "css": ".ds-progress { height: 3px; border-radius: 0; background: var(--surface-3, #232830); overflow: hidden; } .ds-progress__bar { width: 100%; height: 100%; transform-origin: left center; background: var(--accent, #FF6B35); transition: transform 120ms cubic-bezier(0.4,0,0.2,1); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Instrument Panel",
+    "overview": "VDSP looks like a race-engineering tool that happens to run in a browser: a dark canvas that owns the whole screen, chrome that sits on top of it as thin panels, and a single amber that lights up only when the machine is doing something. The reference points are telemetry software and garage screens, not web dashboards. Density is high and decoration is absent — every pixel of chrome is either a label, a figure, a control, or a hairline separating two of those.\n\nThe system is built from three materials only: flat tonal surfaces, 1px hairlines, and gaps. There are no shadows anywhere in the shipped build, no rounded cards, no filled panels, and no decorative gradients (the one gradient in the stylesheet draws the select caret). Depth is expressed by tone alone: the canvas is the darkest ground (#0E1013), the chrome sits one step above it (#14171B), and anything hovered or active steps up once more (#1A1E23). The light theme runs the same structure on warm paper rather than office white, so it reads as a printed data sheet.\n\nThe explicitly rejected look is \"another SaaS dashboard\": equal-weight rounded panels, small grey labels floating in whitespace, soft drop shadows. Where the build still had that shape, it was squared, de-carded, or reduced to rows on a rule.",
+    "keyCharacteristics": [
+      "Full-bleed canvas ground; all chrome floats above it and folds away",
+      "Zero shadows; hairlines and gaps do all separation",
+      "Effectively square (0–2px radii); nothing is a pill or a card",
+      "One amber accent reserved for run state and active selection",
+      "Condensed uppercase legends, tabular monospace for every figure",
+      "Compositor-only motion at 120ms; nothing animates width or height",
+      "Both themes clear WCAG AA on every text pair (lowest measured 4.83:1)"
+    ],
+    "rules": [
+      { "name": "The State-Only Accent Rule", "body": "The accent means \"this is running\" or \"this is the one selected\". If a mark is neither, it is text-1 or text-2. The wordmark, section headings and disabled controls are explicitly barred from it.", "section": "colors" },
+      { "name": "The Three-Plane Rule", "body": "Only three chrome tones may stack: chrome, chrome-raised on interaction, inset-well inside a field. A fourth tonal step to signify grouping is a card in disguise; use a hairline instead.", "section": "colors" },
+      { "name": "The Measured-Colour Rule", "body": "Green, caution amber and red report a condition measured by the simulation. They may never be borrowed for visual emphasis.", "section": "colors" },
+      { "name": "The Tabular Figure Rule", "body": "Every number renders in JetBrains Mono with font-variant-numeric: tabular-nums. A column of values must not jitter as a run updates, and numbers never render in Barlow.", "section": "typography" },
+      { "name": "The Condensed Legend Rule", "body": "Anything that names a control — button text, segmented cell, tab, section title, table header, stat label — is Barlow Condensed, uppercase, tracked 0.06–0.12em. Sentence case belongs to running prose only.", "section": "typography" },
+      { "name": "The 10px Floor Rule", "body": "No type ships below 10px, and 10px is only ever condensed caps at text-3 or brighter. Nothing at 10px carries information a user must read to operate the app.", "section": "typography" },
+      { "name": "The Fold-Gives-Back Rule", "body": "Chrome overlays the canvas; collapsing any region returns its pixels to the track. Never convert a panel into a layout column that squeezes the canvas.", "section": "layout" },
+      { "name": "The Shed-Don't-Crush Rule", "body": "When width runs out the strip removes whole fields (--wide at ≤900px: Car, Track, Alive; --mid at ≤620px: Objective, Gen) rather than shrinking type or truncating values. Anything shed is still readable in the panel it belongs to.", "section": "layout" },
+      { "name": "The Camera-Knows-The-Chrome Rule", "body": "Any change to rail, dock, strip or drawer size must change the matching constant in track-view.component.ts; the canvas camera frames the visible cutout, not the viewport.", "section": "layout" },
+      { "name": "The No-Shadow Rule", "body": "Separation is a hairline or a gap. If a surface must read as separate, give it border-strong; if it must read as grouped, give it hairlines between rows. Never a shadow, never a glow.", "section": "elevation" },
+      { "name": "The Rule-Over-Box Rule", "body": "A list is rows divided by hairlines with the last rule removed — not a stack of filled tiles. Emphasis on a row is a 2px accent bar on its left edge, not a border drawn around it.", "section": "elevation" },
+      { "name": "The Square Rule", "body": "New surfaces take 0px; controls may take 2px. Any radius above 2px must be defending an actual dial, a status LED, or a plotted mark.", "section": "shapes" },
+      { "name": "The Compositor-Only Rule", "body": "Animate transform and opacity. Never width, height, top or left on anything visible while a training run repaints.", "section": "components" }
+    ],
+    "dos": [
+      "Do set every number in JetBrains Mono with tabular-nums, including field contents and table cells.",
+      "Do label controls in Barlow Condensed uppercase, tracked 0.06–0.12em, at 10px or larger.",
+      "Do separate with a 1px border inside a plane and border-strong between planes, removing the rule on the last row.",
+      "Do mark selection and run state with the accent — a 2px left bar, an accent fill on an active segmented cell, or accent text on the lead figure.",
+      "Do keep new chrome at 0px radius, or 2px if it is a control.",
+      "Do position new chrome absolutely over the canvas and give it a collapsed state that returns space to the track.",
+      "Do update the matching inset constant in track-view.component.ts whenever a chrome dimension changes.",
+      "Do verify both themes: every text/background pair must clear 4.5:1, and text-3 on chrome-raised is the tightest pair in the system.",
+      "Do self-host any new face in public/fonts; runtime third-party requests are zero and must stay zero.",
+      "Do animate with transform and opacity at 120ms, and nothing else."
+    ],
+    "donts": [
+      "Don't add a shadow, glow or elevation ramp. There are none in the build, and the hairline vocabulary covers every case.",
+      "Don't wrap content in a filled, rounded card. Rows on a rule are the list form here.",
+      "Don't use a radius above 2px unless the shape is a literal dial or status LED.",
+      "Don't spend the accent on identity, decoration, section headings or a disabled control. It reports state and selection only.",
+      "Don't borrow success / warning / danger for emphasis; they report measured conditions.",
+      "Don't set a number in Barlow, or a control label in sentence case.",
+      "Don't ship type below 10px.",
+      "Don't signal disabled on a filled control by fading it — outline it in border-strong with text-3 text.",
+      "Don't shrink the session strip's type to fit; drop whole fields at the 900px and 620px breakpoints instead.",
+      "Don't animate width or height on chrome that is visible while a run is training."
+    ]
+  }
+}

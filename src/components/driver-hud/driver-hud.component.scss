@@ -14,7 +14,6 @@
   border-radius: var(--r-3);
   background: color-mix(in srgb, var(--surface-1) 88%, transparent);
   backdrop-filter: blur(10px);
-  box-shadow: var(--shadow-overlay);
   transition: border-color var(--transition);
 
   &--off { border-color: var(--warning); }
@@ -76,7 +75,7 @@
 .dial__labels text {
   fill: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: var(--fs-micro);
 }
 
 .dial__needle {
@@ -99,7 +98,7 @@
 }
 
 .dial__speed {
-  font-size: 26px;
+  font-size: var(--fs-2xl);
   font-weight: 600;
   line-height: 1;
   color: var(--text-1);
@@ -138,7 +137,7 @@
   &--sm { font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
 }
 
-.lap--current .lap__time { font-size: 19px; }
+.lap--current .lap__time { font-size: var(--fs-xl); }
 
 .delta {
   display: flex;
@@ -162,15 +161,19 @@
 .progress__bar {
   flex: 1;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--r-1);
   background: var(--surface-3);
   overflow: hidden;
 
+  /* Scaled, not resized: this ticks every frame of a lap. */
   span {
     display: block;
+    width: 100%;
     height: 100%;
+    transform: scaleX(0);
+    transform-origin: left center;
     background: var(--accent);
-    transition: width 90ms linear;
+    transition: transform 90ms linear;
   }
 }
 
@@ -207,7 +210,7 @@
 }
 
 .pedal__label {
-  font-size: 9px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.08em;
   color: var(--text-3);
 }
@@ -309,7 +312,7 @@
 }
 
 .axle__label {
-  font-size: 9px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.07em;
   color: var(--text-3);
   min-width: 34px;
@@ -349,7 +352,7 @@
   top: -2px;
   width: 2px;
   height: 11px;
-  border-radius: 1px;
+  border-radius: var(--r-1);
   background: var(--accent);
   transform: translateX(-1px);
 }
@@ -395,7 +398,7 @@
 }
 
 .flag {
-  font-size: 9px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--warning);
@@ -416,7 +419,7 @@
 }
 
 .fig__k {
-  font-size: 9px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -441,7 +444,7 @@
 .hud__drift { min-width: 128px; }
 
 .drift__score {
-  font-size: 24px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   line-height: 1;
   color: var(--text-1);
@@ -449,7 +452,7 @@
 
 .drift__meter {
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--r-1);
   background: var(--surface-3);
   overflow: hidden;
 }

@@ -1,0 +1,18 @@
+{
+  "surface": "src/components/track-view/track-view.component.ts",
+  "direction": "b54b6c67",
+  "directionForm": "The professional tool (canon, code-led)",
+  "build": {
+    "bundle": "main-BWWWOXZA.js",
+    "stylesheet": "styles-V76VOV6D.css",
+    "commit": "19b3065",
+    "configuration": "production"
+  },
+  "renderer": "headless Chrome (Google Chrome, C:/Program Files/Google/Chrome/Application/chrome.exe)",
+  "capturedAt": "2026-09-06T07:27:52",
+  "servedFrom": "dist/vdsp/browser over http://localhost:8099",
+  "viewport": "1440x900",
+  "theme": "dark",
+  "state": "first run, no track drawn - the state the app opens in",
+  "method": "headless Chrome --window-size=1440,900 --screenshot"
+}
