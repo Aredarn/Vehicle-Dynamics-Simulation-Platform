@@ -1,0 +1,12 @@
+/* Compiles the training Web Worker and everything it pulls in with the worker's own globals:
+   no DOM, so a stray `window` or `document` in shared physics code fails the build instead of
+   the run. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/worker",
+    "lib": ["ES2022", "webworker"],
+    "types": []
+  },
+  "include": ["src/**/*.worker.ts"]
+}

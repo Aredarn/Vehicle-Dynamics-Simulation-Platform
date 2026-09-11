@@ -14,7 +14,32 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/**
+ * Everything the performance sweep depends on, as a key. The sweep integrates a 0-100 run and
+ * a top-speed search, ~50 µs a call, and used to be re-run for every one of thousands of agents
+ * on the grid; keyed by value rather than by object so an edited copy of a preset can never hit
+ * a stale answer.
+ */
+function performanceKey(settings: CarSettings): string {
+  return `${settings.mass}|${settings.enginePower}|${settings.dragCoeff}|${settings.frontalArea}|` +
+    `${settings.tireGrip}|${settings.downforce}|${settings.finalDrive}|${settings.wheelbase}|` +
+    `${settings.drivetrain}|${settings.differential}`;
+}
+
+const performanceCache = new Map<string, PerformanceMetrics>();
+
 export function calculatePerformance(settings: CarSettings): PerformanceMetrics {
+  const key = performanceKey(settings);
+  const cached = performanceCache.get(key);
+  if (cached) return cached;
+  const metrics = computePerformance(settings);
+  // A handful of presets and their edits; bounded so a slider sweep cannot grow it forever.
+  if (performanceCache.size > 256) performanceCache.clear();
+  performanceCache.set(key, metrics);
+  return metrics;
+}
+
+function computePerformance(settings: CarSettings): PerformanceMetrics {
   const mass = toNumber(settings.mass);
   const powerW = toNumber(settings.enginePower) * 1000;
   const rho = 1.225;

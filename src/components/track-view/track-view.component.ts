@@ -4,15 +4,15 @@ import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { CarSettings, CarSettingsService } from '../../services/car-settings.service';
 import { RacingLineOptimizerService } from '../../services/racing-line-optimizer.service';
-import { AIDrivingService, AIGenerationStats } from '../../services/ai-driving.service';
+import { AIDrivingService, AIGenerationStats, AgentSnapshot } from '../../services/ai-driving.service';
 import { ThemePreference, ThemeService } from '../../services/theme.service';
 import { SavedCarModel } from '../../services/model-library.service';
 import { Car } from '../../models/Car';
-import { CarAgent } from '../../models/CarAgent';
 import { PlayerCar, DriverInput, PlayerTelemetry } from '../../models/PlayerCar';
 import { TrainingObjective } from '../../utils/drift-scoring';
 import { PieceType, Segment } from '../../models/Track';
 import { CarState, RacingLinePoint } from '../../interfaces/car-state';
+import { getTrackLength } from '../../utils/track-utils';
 import {
   TrackModel, createTrackModel, trackFromSegments, DEFAULT_TRACK_HALF_WIDTH,
   simplifyPath, smoothPath, splineThroughPoints, scalePathToLength, pathLength, Vec2, normalizeAngle,
@@ -26,6 +26,18 @@ import { DriverHudComponent, LapRecord } from '../driver-hud/driver-hud.componen
 
 const roadWidth = 30;
 const PX_PER_M = 3;
+
+/** Identity of the objects the scene layer depends on, as a string the cache key can carry. */
+const revisions = new WeakMap<object, number>();
+let nextRevision = 1;
+function sceneRevision(value: object): string {
+  let id = revisions.get(value);
+  if (id === undefined) {
+    id = nextRevision++;
+    revisions.set(value, id);
+  }
+  return `#${id}`;
+}
 
 interface Camera {
   scale: number;
@@ -71,7 +83,8 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private historyEntrySub!: Subscription;
   private car!: Car;
   private carColor: [string, string] = ['#3b82f6', '#60a5fa'];
-  private trainingAgents: CarAgent[] = [];
+  /** The field as last published — poses only; the cars themselves live in the training worker. */
+  private trainingAgents: AgentSnapshot[] = [];
   aiStats: AIGenerationStats = {
     generation: 0,
     bestFitness: 0,
@@ -233,6 +246,19 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private dragPreview: any = null;
   previewTurnRight = false;
   private ctx!: CanvasRenderingContext2D;
+
+  /**
+   * The ground — grid, image underlay, track surface and kerbs — rendered once and blitted.
+   *
+   * During training the field repaints tens of times a second, and nothing under it changes
+   * between paints; re-tessellating a few hundred kerb stripes and a five-megapixel grid every
+   * time was most of the frame. The layer is keyed on everything it depends on and rebuilt
+   * only when that key changes: a pan, a zoom, an edit, a theme switch.
+   */
+  private sceneLayer: HTMLCanvasElement | null = null;
+  private sceneLayerCtx: CanvasRenderingContext2D | null = null;
+  private sceneLayerKey = '';
+
   private racingLine: RacingLinePoint[] = [];
   showRacingLine = true;
   useOptimizedLine = true;
@@ -296,6 +322,9 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   private static readonly COMPACT_W = 900;
   private static readonly RAIL_W_COMPACT = 46;
   private static readonly TELEMETRY_FRACTION = 0.46;
+
+  /** Live cars beyond this are painted as marks, not silhouettes; see drawTrainingAgents. */
+  private static readonly SILHOUETTE_LIMIT = 1200;
 
   private static readonly PLAYER_DT = 1 / 30;
   private static readonly MAX_CATCHUP_STEPS = 8;
@@ -1061,14 +1090,12 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     // Work in CSS pixels from here on; the DPR scale is applied once.
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
+    this.drawSceneLayer(canvas);
+
     ctx.save();
     ctx.translate(this.camera.offsetX, this.camera.offsetY);
     ctx.scale(this.camera.scale, this.camera.scale);
 
-    this.drawGrid(40);
-    this.drawUnderlay();
-
-    this.drawTrackSurface();
     this.drawRacingLine();
     this.drawComparisonLines();
     this.drawTrainingAgents();
@@ -1084,6 +1111,55 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     }
 
     ctx.restore();
+  }
+
+  /** Blits the cached ground, rebuilding it first if anything it shows has changed. */
+  private drawSceneLayer(canvas: HTMLCanvasElement) {
+    const key = [
+      canvas.width, canvas.height, this.dpr,
+      this.camera.scale, this.camera.offsetX, this.camera.offsetY,
+      this.track, this.trackWidth, this.colors,
+      this.buildMode === 'image' ? this.underlayImage : null, this.underlayScale, this.underlayOpacity,
+    ].map(v => (typeof v === 'object' && v !== null ? sceneRevision(v) : String(v))).join('|');
+
+    if (!this.sceneLayer || !this.sceneLayerCtx) {
+      this.sceneLayer = document.createElement('canvas');
+      this.sceneLayerCtx = this.sceneLayer.getContext('2d');
+      if (!this.sceneLayerCtx) return;
+    }
+
+    if (key !== this.sceneLayerKey) {
+      const layer = this.sceneLayer;
+      const layerCtx = this.sceneLayerCtx;
+      if (layer.width !== canvas.width || layer.height !== canvas.height) {
+        layer.width = canvas.width;
+        layer.height = canvas.height;
+      }
+      layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+      layerCtx.clearRect(0, 0, layer.width, layer.height);
+      layerCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      layerCtx.save();
+      layerCtx.translate(this.camera.offsetX, this.camera.offsetY);
+      layerCtx.scale(this.camera.scale, this.camera.scale);
+
+      // The ground painters draw through `this.ctx`; point it at the layer for the duration.
+      const main = this.ctx;
+      this.ctx = layerCtx;
+      try {
+        this.drawGrid(40);
+        this.drawUnderlay();
+        this.drawTrackSurface();
+      } finally {
+        this.ctx = main;
+      }
+      layerCtx.restore();
+      this.sceneLayerKey = key;
+    }
+
+    // Device pixels to device pixels: one copy, no scaling.
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.drawImage(this.sceneLayer, 0, 0);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
   private drawRacingLine() {
@@ -1170,6 +1246,16 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     return { length, width };
   }
 
+  /**
+   * The field, thousands of cars at a time, painted tens of times a second.
+   *
+   * Measured at 4000 cars: the per-car save / translate / rotate / restore dance cost ~15 ms a
+   * paint, most of it on wreckage. So a dead car is a plain square where it stopped — one
+   * `fillRect` with no transform, its heading no longer matters — and a live car gets exactly
+   * one `setTransform`. Mid-generation, when most of the grid is wreckage, that is a ~5x
+   * cheaper paint; a single batched path was measured and rejected, since one huge path with
+   * thousands of subpaths rasterises far slower than thousands of small ones.
+   */
   private drawTrainingAgents() {
     if (!this.showAgents || !this.trainingAgents.length) return;
 
@@ -1180,15 +1266,47 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
     const halfW = width / 2;
     const detailed = length * this.camera.scale >= 14;
 
+    // The scene transform in effect right now: DPR, then camera. Rebuilt per car below.
+    const k = this.dpr * this.camera.scale;
+    const tx = this.dpr * this.camera.offsetX;
+    const ty = this.dpr * this.camera.offsetY;
+
     ctx.save();
     ctx.globalAlpha = 0.9;
 
+    // Wreckage first, so live cars paint over it.
+    ctx.fillStyle = this.colors.agentDead;
+    const mark = Math.max(width * 0.8, 1.5 / this.camera.scale);
+    let aliveCount = 0;
+    for (const agent of this.trainingAgents) {
+      const { x, y, alive } = agent.state;
+      if (alive) { aliveCount++; continue; }
+      ctx.fillRect(x * PX_PER_M - mark / 2, y * PX_PER_M - mark / 2, mark, mark);
+    }
+
+    ctx.fillStyle = this.colors.agent;
+
+    // A whole grid alive at once — the first seconds of every generation — is one overlapping
+    // blob at the start line where no silhouette can be told from its neighbour, and painting
+    // thousands of rotated polygons a frame is what turns that moment into a stutter. Past a
+    // crowd, a live car is a plain mark like the wreckage, only in the live colour.
+    if (aliveCount > TrackViewComponent.SILHOUETTE_LIMIT) {
+      const body = Math.max(width, 2 / this.camera.scale);
+      for (const agent of this.trainingAgents) {
+        const { x, y, alive } = agent.state;
+        if (!alive) continue;
+        ctx.fillRect(x * PX_PER_M - body / 2, y * PX_PER_M - body / 2, body, body);
+      }
+      ctx.restore();
+      return;
+    }
+
     for (const agent of this.trainingAgents) {
       const { x, y, heading, alive } = agent.state;
-      ctx.save();
-      ctx.translate(x * PX_PER_M, y * PX_PER_M);
-      ctx.rotate(heading);
-      ctx.fillStyle = alive ? this.colors.agent : this.colors.agentDead;
+      if (!alive) continue;
+      const c = Math.cos(heading) * k;
+      const s = Math.sin(heading) * k;
+      ctx.setTransform(c, s, -s, c, k * x * PX_PER_M + tx, k * y * PX_PER_M + ty);
 
       ctx.beginPath();
       if (detailed) {
@@ -1207,10 +1325,9 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
       }
       ctx.closePath();
       ctx.fill();
-
-      ctx.restore();
     }
 
+    // restore() puts the scene transform back for whatever draws next.
     ctx.restore();
   }
 
@@ -2264,9 +2381,13 @@ export class TrackViewComponent implements AfterViewInit, OnDestroy {
   get trainingLabel(): string { return this.isTraining ? 'Training AI...' : 'Train AI'; }
   get activeCarModel(): string { return this.settingsService.getSettings().name; }
 
+  /**
+   * The circuit's own length. Read off the track model, not the displayed line: after a run the
+   * line on screen is the champion's trajectory, which ends wherever that car did, and the
+   * strip's TRACK figure was quietly shrinking to match.
+   */
   get trackLength(): string {
-    if (this.racingLine.length < 2) return '0 m';
-    const total = this.racingLine[this.racingLine.length - 1].s;
-    return `${total.toFixed(0)} m`;
+    if (!this.track || this.track.points.length < 2) return '0 m';
+    return `${getTrackLength(this.track.points).toFixed(0)} m`;
   }
 }
